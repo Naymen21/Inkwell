@@ -47,7 +47,7 @@ export async function renderLibrary(mount: HTMLElement, open: (id: string) => vo
 
   // Sidebar: settings + search sit above the navigation and never re-render (keeps focus).
   const sideTop = h('div', 'side-top');
-  sideTop.append(h('div', 'brand', `<span class="brand-mark">${icons.logo}</span>inkwell`));
+  sideTop.append(h('div', 'brand', `<span class="brand-mark">${icons.logo}</span>Inkwell`));
   const gear = h('button', 'icon-btn', icons.gear);
   gear.title = 'Settings';
   gear.setAttribute('aria-label', 'Settings');

@@ -1,5 +1,5 @@
 // App settings sheet: section list on the left, grouped toggle rows on the right.
-import { PAPER_COLORS, saveSettings, settings } from '../editor/settings';
+import { PAPER_COLORS, applyAppearance, saveSettings, settings, type Appearance } from '../editor/settings';
 import type { Template } from '../model/types';
 import { icons } from './icons';
 import { esc, sheet } from './modal';
@@ -11,10 +11,10 @@ const h = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', html = '') =
   return e;
 };
 
-type Section = 'editor' | 'paper' | 'about';
+type Section = 'appearance' | 'editor' | 'paper' | 'about';
 
 export function openSettings(onChange?: () => void) {
-  let section: Section = 'editor';
+  let section: Section = 'appearance';
   sheet((box, close) => {
     const nav = h('nav', 'set-nav');
     const body = h('div', 'set-body');
@@ -40,6 +40,7 @@ export function openSettings(onChange?: () => void) {
     };
 
     const sections: [Section, string, string][] = [
+      ['appearance', 'Appearance', icons.palette],
       ['editor', 'Handwriting & drawing', icons.pen],
       ['paper', 'Paper', icons.page],
       ['about', 'About', icons.notes],
@@ -53,7 +54,17 @@ export function openSettings(onChange?: () => void) {
       }
       title.textContent = sections.find((s) => s[0] === section)![1];
       pane.innerHTML = '';
-      if (section === 'editor') {
+      if (section === 'appearance') {
+        const g = h('div', 'set-group pad');
+        const row = h('div', 'theme-row');
+        for (const [v, l] of [['light', 'Light'], ['dark', 'Dark'], ['system', 'Automatic']] as [Appearance, string][]) {
+          const b = h('button', `theme-opt${settings.appearance === v ? ' on' : ''}`, `<span class="theme-prev ${v}"><i></i><i></i><i></i></span><span>${l}</span>`);
+          b.onclick = () => { settings.appearance = v; applyAppearance(); changed(); render(); };
+          row.append(b);
+        }
+        g.append(row);
+        pane.append(g, h('p', 'set-note', 'Automatic follows your device’s light or dark setting. Your pages stay the paper color you picked.'));
+      } else if (section === 'editor') {
         const g = h('div', 'set-group');
         g.append(
           row('Straight lines', 'Highlighter strokes that are nearly straight snap to a perfect line.', settings.straightLines, (v) => (settings.straightLines = v)),

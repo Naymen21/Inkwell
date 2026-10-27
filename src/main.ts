@@ -2,6 +2,9 @@ import './styles.css';
 import { Editor } from './editor/editor';
 import { renderLibrary } from './library/library';
 import { toast } from './ui/modal';
+import { applyAppearance } from './editor/settings';
+
+applyAppearance();
 
 const app = document.getElementById('app')!;
 let editor: Editor | null = null;

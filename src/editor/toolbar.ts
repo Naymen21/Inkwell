@@ -9,7 +9,7 @@ import { renderPageToCanvas } from '../render/draw';
 import type { Editor } from './editor';
 import { newPage } from './editor';
 import { exportNoteFile, exportPdf, pdfToPages, safeName, saveBlob } from './io';
-import { HL_COLORS, PAPER_COLORS, PEN_COLORS, saveSettings, settings, type ToolName } from './settings';
+import { DEFAULT_DOCK, HL_COLORS, PAPER_COLORS, PEN_COLORS, saveSettings, settings, type DockItem, type ToolName } from './settings';
 import { hasClipboard } from './tools';
 import { db } from '../persist/db';
 import { InklyPanel } from './inkly';
@@ -82,6 +82,98 @@ export class Toolbar {
   private playBtn!: HTMLButtonElement;
   private rateBtn!: HTMLButtonElement;
   private optsKey = '';
+  private dockBtns = new Map<DockItem, HTMLButtonElement>();
+  private toolsRow = h('div', 'dock-tools');
+  private collapseBtn!: HTMLButtonElement;
+
+  /** Lay out the dock from the saved order, skipping hidden items. */
+  layoutDock() {
+    const row = this.toolsRow;
+    row.replaceChildren();
+    let utilityStarted = false;
+    for (const slot of settings.dock) {
+      const b = this.dockBtns.get(slot.id);
+      if (!b || slot.hidden) continue;
+      if (slot.id === 'mic' && !Recorder.supported()) continue;
+      // A divider before the finger-drawing switch, as in Notability.
+      if (slot.id === 'hand' && row.childElementCount && !utilityStarted) { row.append(h('span', 'vsep')); utilityStarted = true; }
+      row.append(b);
+    }
+    row.append(this.collapseBtn);
+  }
+
+  /** Reorder (drag the handle) and show/hide dock items. */
+  customizeSheet() {
+    const labels: Record<DockItem, string> = {
+      pen: 'Pen', shape: 'Shapes', highlighter: 'Highlighter', eraser: 'Eraser', text: 'Text', lasso: 'Select',
+      insert: 'Insert', mic: 'Record audio', hand: 'Draw with finger',
+    };
+    const iconFor = (id: DockItem) => TOOLS.find((t) => t.name === id)?.icon ?? (id === 'insert' ? icons.insert : id === 'mic' ? icons.mic : icons.nbHand);
+    sheet((box, close) => {
+      const head = h('div', 'pop-head');
+      const reset = h('button', 'link-btn', 'Reset');
+      const done = h('button', 'link-btn strong', 'Done');
+      head.append(reset, h('b', '', 'Customize toolbar'), done);
+      const list = h('div', 'set-group dock-list');
+      const render = () => {
+        list.replaceChildren();
+        for (const slot of settings.dock) {
+          const row = h('div', `dock-row${slot.hidden ? ' off' : ''}`);
+          row.dataset.id = slot.id;
+          const grip = h('span', 'grip', icons.menu);
+          grip.setAttribute('aria-label', `Drag to reorder ${labels[slot.id]}`);
+          const sw = h('input', 'switch');
+          sw.type = 'checkbox';
+          sw.checked = !slot.hidden;
+          sw.setAttribute('aria-label', `Show ${labels[slot.id]}`);
+          sw.onchange = () => { slot.hidden = !sw.checked; row.classList.toggle('off', slot.hidden); commit(); };
+          row.append(grip, h('span', 'dock-row-icon', iconFor(slot.id)), h('span', 'set-label', esc(labels[slot.id])), sw);
+          grip.onpointerdown = (e) => startDrag(e, row);
+          list.append(row);
+        }
+      };
+      const commit = () => {
+        const order = [...list.querySelectorAll<HTMLElement>('.dock-row')].map((r) => r.dataset.id as DockItem);
+        settings.dock = order.map((id) => ({ id, hidden: settings.dock.find((s) => s.id === id)!.hidden }));
+        saveSettings();
+        this.layoutDock();
+        this.update();
+      };
+      // Drag: the row follows the pointer; it swaps places as it crosses another row's middle.
+      const startDrag = (e: PointerEvent, row: HTMLElement) => {
+        e.preventDefault();
+        // Listen on the window: re-inserting the row in the list drops pointer capture.
+        const id = e.pointerId;
+        row.classList.add('dragging');
+        const move = (ev: PointerEvent) => {
+          if (ev.pointerId !== id) return;
+          for (const other of list.querySelectorAll<HTMLElement>('.dock-row')) {
+            if (other === row) continue;
+            const r = other.getBoundingClientRect();
+            const mid = r.top + r.height / 2;
+            const before = !!(row.compareDocumentPosition(other) & Node.DOCUMENT_POSITION_PRECEDING);
+            if (before && ev.clientY < mid && ev.clientY > r.top) { list.insertBefore(row, other); break; }
+            if (!before && ev.clientY > mid && ev.clientY < r.bottom) { list.insertBefore(row, other.nextSibling); break; }
+          }
+        };
+        const up = (ev: PointerEvent) => {
+          if (ev.pointerId !== id) return;
+          row.classList.remove('dragging');
+          window.removeEventListener('pointermove', move);
+          window.removeEventListener('pointerup', up);
+          window.removeEventListener('pointercancel', up);
+          commit();
+        };
+        window.addEventListener('pointermove', move);
+        window.addEventListener('pointerup', up);
+        window.addEventListener('pointercancel', up);
+      };
+      reset.onclick = () => { settings.dock = DEFAULT_DOCK.map((id) => ({ id, hidden: false })); render(); commit(); };
+      done.onclick = close;
+      render();
+      box.append(head, h('p', 'set-note', 'Drag ☰ to reorder. Turn items off to hide them. Tip: long-press the toolbar to open this.'), list);
+    }, undefined, 'sheet-md');
+  }
 
   constructor(private ed: Editor) {
     this.inkly = new InklyPanel(ed);
@@ -112,13 +204,12 @@ export class Toolbar {
     title.onkeydown = (e) => { if (e.key === 'Enter') title.blur(); };
     left.append(title);
 
-    const tools = h('div', 'dock-tools');
     for (const t of TOOLS) {
       const b = this.btn(`${t.icon}<span class="ink-dot"></span>`, t.label, () => ed.setTool(t.name), 'icon-btn tool-btn');
       this.toolBtns.set(t.name, b);
-      tools.append(b);
+      this.dockBtns.set(t.name, b);
     }
-    tools.append(this.btn(icons.insert, 'Insert', (b) => this.insertMenu(b), 'icon-btn tool-btn'));
+    this.dockBtns.set('insert', this.btn(icons.insert, 'Insert', (b) => this.insertMenu(b), 'icon-btn tool-btn'));
     this.recBtn = this.btn(icons.mic, 'Record audio', () => ed.toggleRecord(), 'icon-btn tool-btn rec-btn');
     this.handBtn = this.btn(icons.nbHand, 'Draw with finger', () => {
       settings.fingerDraw = !settings.fingerDraw;
@@ -131,9 +222,20 @@ export class Toolbar {
       collapse.setAttribute('aria-label', c ? 'Show options' : 'Hide options');
       collapse.title = c ? 'Show options' : 'Hide options';
     }, 'icon-btn tool-btn collapse-btn');
-    if (!Recorder.supported()) this.recBtn.hidden = true;
-    tools.append(this.recBtn, h('span', 'vsep'), this.handBtn, collapse);
-    this.dock.append(tools, this.opts);
+    this.dockBtns.set('mic', this.recBtn);
+    this.dockBtns.set('hand', this.handBtn);
+    this.collapseBtn = collapse;
+    this.dock.append(this.toolsRow, this.opts);
+    this.layoutDock();
+    // Long-press the dock to customize it (like rearranging a toolbar on iPad).
+    let press = 0;
+    this.dock.addEventListener('pointerdown', (e) => {
+      if ((e.target as HTMLElement).closest('.dock-opts')) return;
+      press = window.setTimeout(() => { press = 0; this.customizeSheet(); }, 650);
+    });
+    for (const ev of ['pointerup', 'pointerleave', 'pointercancel', 'pointermove'] as const) {
+      this.dock.addEventListener(ev, (e) => { if (ev !== 'pointermove' || (e as PointerEvent).movementX || (e as PointerEvent).movementY) clearTimeout(press); });
+    }
 
     const right = h('div', 'float-right glass');
     this.undoBtn = this.btn(icons.undo, 'Undo', () => ed.doc.undo());
@@ -546,6 +648,7 @@ export class Toolbar {
         if (await confirmBox('Delete this page?', 'You can undo this.')) ed.doc.commit([{ t: 'removePage', id: cur.page.id }]);
       } },
       { label: 'Fit to width', icon: icons.pages, action: () => ed.fitWidth() },
+      { label: 'Customize toolbar…', icon: icons.menu, action: () => this.customizeSheet() },
       null,
       { label: 'Settings', icon: icons.gear, action: () => openSettings(() => this.update()) },
     ], anchor);
