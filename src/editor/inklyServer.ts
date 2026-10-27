@@ -3,7 +3,7 @@
 // claude.ai `sample` capability so the panel doesn't care which one it has.
 
 type Role = 'user' | 'assistant';
-type Opts = { signal?: AbortSignal; images?: Blob[]; onText?: (u: { text: string; delta: string }) => void; cache?: boolean };
+type Opts = { signal?: AbortSignal; images?: Blob[]; onText?: (u: { text: string; delta: string }) => void; cache?: boolean; speed?: 'fast' | 'quality' };
 
 export interface InklyBackend {
   (input: { role: Role; content: string }[], opts?: Opts): Promise<{ text: string; truncated: boolean }>;
@@ -40,7 +40,7 @@ export async function serverBackend(): Promise<InklyBackend | null> {
       res = await fetch('./api/inkly', {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-inkly-passcode': getPasscode() },
-        body: JSON.stringify({ turns: input, images }),
+        body: JSON.stringify({ turns: input, images, speed: opts.speed ?? 'fast' }),
         signal: opts.signal,
       });
     } catch {

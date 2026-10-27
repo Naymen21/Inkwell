@@ -369,9 +369,11 @@ export class InklyPanel {
         ...history,
         { role: 'user' as Role, content: prompt },
       ];
+      const deep = label === 'Study guide' || label === 'Flashcards';
       const { text, truncated } = await sample(input, {
         signal: ctl.signal,
         cache: false,
+        ...(this.sample?.provider === 'Claude' ? {} : { speed: deep ? 'quality' : 'fast' }),
         ...(ctx.images.length ? { images: ctx.images } : {}),
         onText: ({ text }: { text: string }) => { bot.content = text; const b = bubble(); if (b) b.innerHTML = renderMd(text); this.log.scrollTop = this.log.scrollHeight; },
       });

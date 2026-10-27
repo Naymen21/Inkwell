@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { GET, POST } from '../api/inkly';
+import { GET, POST, resetCooling } from '../api/inkly';
 import { serverBackend } from '../src/editor/inklyServer';
 
 const env = (globalThis as unknown as { process: { env: Record<string, string | undefined> } }).process.env;
@@ -15,6 +15,7 @@ const post = (body: unknown, headers: Record<string, string> = {}) =>
   POST(new Request('http://x/api/inkly', { method: 'POST', body: JSON.stringify(body), headers: { 'content-type': 'application/json', ...headers } }));
 
 afterEach(() => {
+  resetCooling();
   vi.unstubAllGlobals();
   delete env.GEMINI_API_KEY; delete env.INKLY_PASSCODE; delete env.INKLY_MODEL;
 });
@@ -44,7 +45,7 @@ describe('api/inkly', () => {
       images: ['aGVsbG8=', 'not base64!'],
     });
     expect(r.status).toBe(200);
-    expect(sent!.url).toContain('gemini-flash-latest:streamGenerateContent?alt=sse');
+    expect(sent!.url).toContain('gemini-flash-lite-latest:streamGenerateContent?alt=sse'); // quick questions: light model first
     expect(sent!.url).not.toContain('key=');
     expect((sent!.init.headers as Record<string, string>)['x-goog-api-key']).toBe('k');
     const body = JSON.parse(String(sent!.init.body));
@@ -63,7 +64,7 @@ describe('api/inkly', () => {
     const r = await post({ turns: [{ role: 'user', content: 'hi' }] });
     expect(r.status).toBe(200);
     expect(urls).toHaveLength(2);
-    expect(r.headers.get('x-inkly-model')).not.toBe('gemini-flash-latest');
+    expect(r.headers.get('x-inkly-model')).not.toBe('gemini-flash-lite-latest');
   });
 
   it('reports busy when every model is overloaded', async () => {
@@ -83,6 +84,26 @@ describe('api/inkly', () => {
     expect(r.status).toBe(200);
     expect(bodies[0].generationConfig.thinkingConfig).toEqual({ thinkingLevel: 'minimal' });
     expect(bodies[1].generationConfig.thinkingConfig).toBeUndefined();
+  });
+
+  it('study guides prefer the stronger model; a busy model is skipped next time', async () => {
+    env.GEMINI_API_KEY = 'k';
+    const urls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => { urls.push(url); return urls.length === 1 ? new Response('busy', { status: 503 }) : sse([chunk('ok')]); }));
+    await post({ turns: [{ role: 'user', content: 'guide' }], speed: 'quality' });
+    expect(urls[0]).toContain('/gemini-flash-latest:');
+    urls.length = 0;
+    await post({ turns: [{ role: 'user', content: 'guide again' }], speed: 'quality' });
+    expect(urls[0]).not.toContain('/gemini-flash-latest:'); // cooled down for a minute
+  });
+
+  it('streamtest streams chunks without calling Gemini', async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    const r = GET(new Request('http://x/api/inkly?streamtest'));
+    const text = await r.text();
+    expect(text.match(/chunk \d/g)).toHaveLength(5);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it('maps Gemini quota errors to rate_limited', async () => {
