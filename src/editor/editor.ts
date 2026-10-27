@@ -14,6 +14,8 @@ import { toast } from '../ui/modal';
 import { Player, Recorder, recoverClips, timelineEnd } from './audio';
 import { settings, saveSettings, type ToolName } from './settings';
 import { TextLayer } from './textLayer';
+import { Tables } from './tableCtl';
+import { tableText } from './table';
 import { EraserTool, InkTool, LassoTool, OBJECTS_MARKER, TextTool, hitObject, type Tool } from './tools';
 import { Toolbar } from './toolbar';
 
@@ -58,6 +60,7 @@ export class Editor {
   private octx: CanvasRenderingContext2D;
   readonly toolbar: Toolbar;
   readonly text: TextLayer;
+  readonly tables: Tables;
 
   pages: PageView[] = [];
   private pageMap = new Map<string, PageView>();
@@ -137,6 +140,7 @@ export class Editor {
     this.octx = (this.overlay.getContext('2d', { desynchronized: true }) ?? this.overlay.getContext('2d'))!;
     this.viewport.append(this.world, this.overlay);
     this.text = new TextLayer(this);
+    this.tables = new Tables(this);
     this.tools = {
       pen: new InkTool(this, 'pen'), highlighter: new InkTool(this, 'highlighter'), shape: new InkTool(this, 'shape'),
       eraser: new EraserTool(this), lasso: new LassoTool(this), text: new TextTool(this),
@@ -424,6 +428,7 @@ export class Editor {
     for (const [page, r] of ch.dirty) this.pageMap.get(page)?.invalidate(r);
     for (const page of ch.full) this.pageMap.get(page)?.reset();
     this.text.sync(ch.texts);
+    this.tables.inkChanged(logged);
     this.tools.lasso.refresh();
     this.byTime = null;
     this.toolbar.docChanged(ch.layout);
@@ -469,7 +474,7 @@ export class Editor {
     m.modified = Date.now();
     m.pageCount = this.doc.state.pages.length;
     const texts: string[] = [];
-    for (const o of this.doc.state.objects.values()) if (o.kind === 'text' || o.kind === 'sticky') texts.push(o.text);
+    for (const o of this.doc.state.objects.values()) if (o.kind === 'text' || o.kind === 'sticky') texts.push(o.text); else if (o.kind === 'table') texts.push(tableText(o));
     m.searchText = texts.join(' ').slice(0, 8000);
     if (thumb) {
       const p = this.doc.state.pages[0];

@@ -968,3 +968,33 @@ body.dragging-note, body.dragging-note * { cursor: grabbing !important; -webkit-
   .outline-panel { background: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: none; top: calc(76px + env(safe-area-inset-top)); }
   .editor.has-outline::before { content: ""; position: absolute; left: 263px; top: 0; bottom: 0; width: 1px; background: var(--line); z-index: 1; }
 }
+
+/* ---------- Smart tables ---------- */
+.table-obj { position: absolute; z-index: 1; pointer-events: none; }
+.tbl-grid { position: relative; display: grid; border-left: 1px solid var(--tbl-line); border-top: 1px solid var(--tbl-line); }
+.table-obj { --tbl-line: rgba(60, 60, 67, 0.32); color: #1c1c1e; }
+.table-obj.on-dark { --tbl-line: rgba(255, 255, 255, 0.35); color: #f2f2f7; }
+.tbl-cell { border-right: 1px solid var(--tbl-line); border-bottom: 1px solid var(--tbl-line); min-width: 0; }
+.tbl-text {
+  display: block; width: 100%; height: 100%; resize: none; border: 0; outline: none; background: transparent; overflow: hidden;
+  padding: 7px 8px; font: 15px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: inherit;
+  pointer-events: none;
+}
+.editor.tool-text .tbl-text { pointer-events: auto; cursor: text; }
+.tbl-text:focus { background: rgba(79, 124, 246, 0.08); box-shadow: inset 0 0 0 2px #4f7cf6; }
+.tbl-grip {
+  position: absolute; left: -26px; top: 0; width: 22px; height: 30px; border-radius: 6px; pointer-events: auto; touch-action: none; cursor: grab;
+  display: flex; align-items: center; justify-content: center; color: rgba(60, 60, 67, 0.55); opacity: 0.55;
+}
+.tbl-grip:hover, .table-obj.active .tbl-grip { opacity: 1; background: rgba(120, 120, 128, 0.12); }
+.tbl-rs { position: absolute; top: 0; bottom: 0; width: 10px; cursor: col-resize; touch-action: none; pointer-events: none; z-index: 1; }
+.editor.tool-text .tbl-rs { pointer-events: auto; }
+.tbl-rs:hover, .tbl-rs.dragging { background: linear-gradient(90deg, transparent 4px, #4f7cf6 4px, #4f7cf6 6px, transparent 6px); }
+.tbl-bar {
+  position: absolute; left: 0; bottom: calc(100% + 8px); display: none; gap: 2px; padding: 4px; border-radius: 12px; white-space: nowrap;
+  background: rgba(28, 28, 30, 0.92); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2); pointer-events: auto; z-index: 3;
+}
+.table-obj.active .tbl-bar { display: flex; }
+.tbl-act { color: #fff; font: 600 13px -apple-system, system-ui, sans-serif; padding: 7px 10px; min-height: 32px; border-radius: 8px; }
+.tbl-act:hover { background: rgba(255, 255, 255, 0.12); }
+.tbl-act.danger { color: #ff6b6b; }

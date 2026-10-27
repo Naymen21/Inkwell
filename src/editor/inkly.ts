@@ -2,7 +2,7 @@
 // artifact runtime (`claude.use("sample")`), which runs on the viewer's own
 // Claude plan — no API key, nothing billed elsewhere. Outside claude.ai the
 // runtime is absent and the panel explains how to open Inkwell there.
-import type { Op, Page, StickyObj, TextObj } from '../model/types';
+import type { Op, Page, TextObj } from '../model/types';
 import { renderPageToCanvas } from '../render/draw';
 import { media } from '../render/media';
 import { icons } from '../ui/icons';
@@ -11,6 +11,7 @@ import { uid } from '../util/ids';
 import { useCapability } from '../util/claude';
 import { serverBackend, setPasscode } from './inklyServer';
 import { Credits, formatWait } from './credits';
+import { tableText } from './table';
 import { settings } from './settings';
 import type { Editor } from './editor';
 import { newPage } from './editor';
@@ -355,7 +356,7 @@ export class InklyPanel {
     const all = st.pages;
     const parts: string[] = [`Note title: ${this.ed.meta.title}`];
     for (const p of pages) {
-      const typed = st.objectsOn(p.id).filter((o): o is TextObj | StickyObj => o.kind === 'text' || o.kind === 'sticky').map((o) => (o.kind === 'sticky' ? `[Sticky note] ${o.text}` : o.text)).join('\n');
+      const typed = st.objectsOn(p.id).flatMap((o) => (o.kind === 'sticky' ? [`[Sticky note] ${o.text}`] : o.kind === 'text' ? [o.text] : o.kind === 'table' ? [`[Table]\n${tableText(o)}`] : [])).join('\n');
       if (typed.trim()) parts.push(`Typed text on page ${all.indexOf(p) + 1}:\n${typed}`);
     }
     // Only pages with handwriting, images or a PDF need a picture; typed text is sent as text.

@@ -757,6 +757,7 @@ export class Toolbar {
       { label: 'Photo or image', icon: icons.image, action: async () => { const f = await pickFile('image/*'); if (f) ed.insertImage(f); } },
       { label: 'Take photo', icon: icons.camera, action: async () => { const f = await pickFile('image/*', true); if (f) ed.insertImage(f); } },
       { label: 'Sticky note', icon: icons.notes, action: () => ed.addSticky() },
+      { label: 'Table', icon: icons.table, action: () => ed.tables.add() },
       { label: 'PDF pages', icon: icons.upload, action: async () => { const f = await pickFile('application/pdf,.pdf'); if (f) this.insertPdf(f); } },
       null,
       { label: 'Blank page after this one', icon: icons.page, action: () => {

@@ -1,7 +1,8 @@
 // Text boxes are DOM (crisp at any zoom, native editing, iPad Scribble works)
 // positioned in page coordinates on top of the page canvas.
-import type { StickyObj, TextObj } from '../model/types';
-import { FONTS, TEXT_LINE } from '../render/draw';
+import type { StickyObj, TableObj, TextObj } from '../model/types';
+import { edges } from './table';
+import { FONTS, TEXT_LINE, isDark } from '../render/draw';
 import type { Editor } from './editor';
 import { settings } from './settings';
 
@@ -24,7 +25,7 @@ export class TextLayer {
   syncAll() {
     const st = this.ed.doc.state;
     for (const id of [...this.els.keys()]) if (!st.objects.has(id) && this.editing?.id !== id) this.drop(id);
-    for (const o of st.objects.values()) if (o.kind === 'text') this.render(o); else if (o.kind === 'sticky') this.renderSticky(o);
+    for (const o of st.objects.values()) if (o.kind === 'text') this.render(o); else if (o.kind === 'sticky') this.renderSticky(o); else if (o.kind === 'table') this.renderTable(o);
   }
 
   sync(ids: Iterable<string>) {
@@ -33,6 +34,7 @@ export class TextLayer {
       const o = st.objects.get(id);
       if (o?.kind === 'text') this.render(o);
       else if (o?.kind === 'sticky') this.renderSticky(o);
+      else if (o?.kind === 'table') this.renderTable(o);
       else if (this.editing?.id !== id) this.drop(id);
     }
   }
@@ -127,6 +129,193 @@ export class TextLayer {
         const x = Math.max(-MARGIN, Math.min(pv.page.w + MARGIN - 30, o.x + (ev.clientX - sx) / z));
         const y = Math.max(0, Math.min(pv.page.h - 30, o.y + (ev.clientY - sy) / z));
         this.stickyPatch(id, { x, y });
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+      window.addEventListener('pointercancel', up);
+    });
+  }
+
+  /** The cell being edited, so a rebuilt table can put the cursor back. */
+  tableFocus: { id: string; r: number; c: number } | null = null;
+
+  /**
+   * Table: a CSS grid of textareas. Typing grows the row live; leaving the
+   * cell saves the text and fits the rows. A grip moves it, column borders
+   * resize, and a bar of row/column actions shows while a cell is focused.
+   */
+  private renderTable(o: TableObj) {
+    const pv = this.ed.pageView(o.page);
+    if (!pv) return;
+    const shape = `${o.rows.length}x${o.cols.length}`;
+    let el = this.els.get(o.id);
+    if (el && el.dataset.shape !== shape) { el.remove(); this.els.delete(o.id); el = undefined; }
+    if (!el) {
+      el = document.createElement('div');
+      el.className = 'table-obj';
+      el.dataset.id = o.id;
+      el.dataset.shape = shape;
+      this.els.set(o.id, el);
+      const grid = document.createElement('div');
+      grid.className = 'tbl-grid';
+      for (let r = 0; r < o.rows.length; r++) {
+        for (let c = 0; c < o.cols.length; c++) {
+          const cell = document.createElement('div');
+          cell.className = 'tbl-cell';
+          const ta = document.createElement('textarea');
+          ta.className = 'tbl-text';
+          ta.rows = 1;
+          ta.spellcheck = true;
+          ta.setAttribute('aria-label', `Row ${r + 1}, column ${c + 1}`);
+          ta.dataset.r = String(r);
+          ta.dataset.c = String(c);
+          ta.addEventListener('pointerdown', (e) => e.stopPropagation());
+          ta.onfocus = () => { this.tableFocus = { id: o.id, r, c }; el!.classList.add('active'); };
+          ta.oninput = () => this.growRow(o.id, r);
+          ta.onkeydown = (e) => {
+            e.stopPropagation();
+            if (e.key === 'Tab') {
+              e.preventDefault();
+              const all = [...el!.querySelectorAll<HTMLTextAreaElement>('.tbl-text')];
+              const i = all.indexOf(ta) + (e.shiftKey ? -1 : 1);
+              if (i >= 0 && i < all.length) all[i].focus();
+              else if (!e.shiftKey) { this.tableFocus = { id: o.id, r: o.rows.length, c: 0 }; ta.blur(); this.ed.tables.act(o.id, 'rowBelow', o.rows.length - 1, 0); }
+            } else if (e.key === 'Escape') ta.blur();
+          };
+          ta.onblur = () => {
+            el!.classList.remove('active');
+            const cur = this.ed.doc.state.objects.get(o.id);
+            if (cur?.kind === 'table' && (cur.cells[r]?.[c] ?? '') !== ta.value) this.ed.tables.setText(o.id, r, c, ta.value);
+          };
+          cell.append(ta);
+          grid.append(cell);
+        }
+      }
+      // Column resize handles on each column's right edge.
+      for (let c = 0; c < o.cols.length; c++) {
+        const rs = document.createElement('div');
+        rs.className = 'tbl-rs';
+        rs.dataset.c = String(c);
+        this.dragColumn(rs, o.id, c, grid);
+        grid.append(rs);
+      }
+      const grip = document.createElement('button');
+      grip.className = 'tbl-grip';
+      grip.setAttribute('aria-label', 'Move table');
+      grip.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>';
+      this.dragTable(el, grip, o.id);
+      const bar = document.createElement('div');
+      bar.className = 'tbl-bar';
+      const acts: [string, string, Parameters<typeof this.ed.tables.act>[1]][] = [
+        ['+ Row', 'Add row below', 'rowBelow'], ['+ Column', 'Add column to the right', 'colRight'],
+        ['↑', 'Move row up', 'rowUp'], ['↓', 'Move row down', 'rowDown'], ['←', 'Move column left', 'colLeft'], ['→', 'Move column right', 'colRight2'],
+        ['− Row', 'Delete row', 'delRow'], ['− Column', 'Delete column', 'delCol'], ['Delete', 'Delete table', 'delete'],
+      ];
+      for (const [label, title, act] of acts) {
+        const b = document.createElement('button');
+        b.className = `tbl-act${act === 'delete' ? ' danger' : ''}`;
+        b.textContent = label;
+        b.title = title;
+        b.setAttribute('aria-label', title);
+        // Keep the cell focused while tapping the bar.
+        b.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); });
+        b.onclick = () => {
+          const f = this.tableFocus?.id === o.id ? this.tableFocus : { id: o.id, r: 0, c: 0 };
+          (document.activeElement as HTMLElement | null)?.blur?.();
+          this.ed.tables.act(o.id, act, f.r, f.c);
+        };
+        bar.append(b);
+      }
+      el.append(bar, grip, grid);
+    }
+    if (el.parentElement !== pv.textLayer) pv.textLayer.append(el);
+    const grid = el.querySelector<HTMLDivElement>('.tbl-grid')!;
+    Object.assign(el.style, { left: `${o.x}px`, top: `${o.y}px`, width: `${o.w}px` });
+    el.classList.toggle('on-dark', isDark(pv.page.paper));
+    grid.style.gridTemplateColumns = o.cols.map((w) => `${w}px`).join(' ');
+    grid.style.gridTemplateRows = o.rows.map((h) => `${h}px`).join(' ');
+    const xs = edges(o.cols);
+    grid.querySelectorAll<HTMLDivElement>('.tbl-rs').forEach((rs, c) => { rs.style.left = `${xs[c] + o.cols[c] - 5}px`; });
+    for (const ta of grid.querySelectorAll<HTMLTextAreaElement>('.tbl-text')) {
+      const v = o.cells[+ta.dataset.r!]?.[+ta.dataset.c!] ?? '';
+      if (document.activeElement !== ta && ta.value !== v) ta.value = v;
+    }
+    el.style.opacity = this.dimT != null && o.createdAt > this.dimT ? '0.18' : '';
+    const f = this.tableFocus;
+    if (f?.id === o.id && !el.contains(document.activeElement)) {
+      const ta = grid.querySelector<HTMLTextAreaElement>(`.tbl-text[data-r="${Math.min(f.r, o.rows.length - 1)}"][data-c="${Math.min(f.c, o.cols.length - 1)}"]`);
+      this.tableFocus = null;
+      if (ta && this.ed.root.classList.contains('tool-text')) setTimeout(() => ta.focus(), 0);
+    }
+  }
+
+  /** Height each row's text needs (page units), or null if the table isn't on screen. */
+  measureTable(id: string): number[] | null {
+    const el = this.els.get(id);
+    if (!el) return null;
+    const need: number[] = [];
+    for (const ta of el.querySelectorAll<HTMLTextAreaElement>('.tbl-text')) {
+      const r = +ta.dataset.r!;
+      const h = ta.style.height;
+      ta.style.height = '0px';
+      need[r] = Math.max(need[r] ?? 0, ta.scrollHeight + 2);
+      ta.style.height = h;
+    }
+    return need;
+  }
+
+  /** While typing, let the row grow on screen (saved when the cell is left). */
+  private growRow(id: string, r: number) {
+    const el = this.els.get(id), o = this.ed.doc.state.objects.get(id);
+    if (!el || o?.kind !== 'table') return;
+    const need = this.measureTable(id) ?? [];
+    const rows = o.rows.map((h, i) => (i === r ? Math.max(h, need[r] ?? 0) : h));
+    el.querySelector<HTMLDivElement>('.tbl-grid')!.style.gridTemplateRows = rows.map((h) => `${h}px`).join(' ');
+  }
+
+  private dragTable(el: HTMLElement, handle: HTMLElement, id: string) {
+    handle.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const sx = e.clientX, sy = e.clientY, z = this.ed.cam.z;
+      const move = (ev: PointerEvent) => { if (ev.pointerId === e.pointerId) el.style.transform = `translate(${(ev.clientX - sx) / z}px, ${(ev.clientY - sy) / z}px)`; };
+      const up = (ev: PointerEvent) => {
+        if (ev.pointerId !== e.pointerId) return;
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        window.removeEventListener('pointercancel', up);
+        el.style.transform = '';
+        const dx = (ev.clientX - sx) / z, dy = (ev.clientY - sy) / z;
+        if (Math.hypot(dx, dy) * z > 3) this.ed.tables.move(id, dx, dy);
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+      window.addEventListener('pointercancel', up);
+    });
+  }
+
+  private dragColumn(rs: HTMLElement, id: string, c: number, grid: HTMLElement) {
+    rs.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const o = this.ed.doc.state.objects.get(id);
+      if (o?.kind !== 'table') return;
+      const sx = e.clientX, z = this.ed.cam.z, w0 = o.cols[c];
+      let w = w0;
+      rs.classList.add('dragging');
+      const move = (ev: PointerEvent) => {
+        if (ev.pointerId !== e.pointerId) return;
+        w = Math.max(48, Math.round(w0 + (ev.clientX - sx) / z));
+        grid.style.gridTemplateColumns = o.cols.map((v, i) => `${i === c ? w : v}px`).join(' ');
+        rs.style.left = `${edges(o.cols)[c] + w - 5}px`;
+      };
+      const up = (ev: PointerEvent) => {
+        if (ev.pointerId !== e.pointerId) return;
+        rs.classList.remove('dragging');
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        window.removeEventListener('pointercancel', up);
+        if (w !== w0) this.ed.tables.resizeCol(id, c, w);
       };
       window.addEventListener('pointermove', move);
       window.addEventListener('pointerup', up);

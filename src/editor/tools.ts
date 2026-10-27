@@ -267,6 +267,13 @@ export function xfObj<T extends PageObject>(o: T, t: Xf): T {
     }
     return { ...o, pts, bbox: strokeBBox(pts) };
   }
+  // Tables stay upright; they move with the selection and scale their grid.
+  if (o.kind === 'table') {
+    const c = applyXf(t, o.x + o.w / 2, o.y + o.h / 2);
+    const cols = o.cols.map((v) => Math.round(v * t.s)), rows = o.rows.map((v) => Math.round(v * t.s));
+    const w = cols.reduce((a, b) => a + b, 0), h = rows.reduce((a, b) => a + b, 0);
+    return { ...o, x: c.x - w / 2, y: c.y - h / 2, w, h, cols, rows };
+  }
   // Sticky notes keep their size and stay upright; only their position follows.
   if (o.kind === 'sticky') { const q = applyXf(t, o.x, o.y); return { ...o, x: q.x, y: q.y }; }
   const c = applyXf(t, o.x + o.w / 2, o.y + o.h / 2);
@@ -563,7 +570,7 @@ export class LassoTool implements Tool {
         ed.pageTransform(ctx, pv, false);
         const local = { ...t, px: t.px - pv.x, py: t.py - pv.y };
         const opts = { darkPaper: isDark(pv.page.paper), text: true };
-        if (o.kind === 'sticky') { drawObject(ctx, xfObj(o, local), opts); continue; }
+        if (o.kind === 'sticky' || o.kind === 'table') { drawObject(ctx, xfObj(o, local), opts); continue; }
         ctx.translate(local.dx + local.px, local.dy + local.py);
         ctx.rotate(local.a);
         ctx.scale(local.s, local.s);

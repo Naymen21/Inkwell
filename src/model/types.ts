@@ -54,7 +54,19 @@ export interface StickyObj extends BaseObj {
   open: boolean;
 }
 
-export type PageObject = StrokeObj | TextObj | ImageObj | StickyObj;
+/** A table: column widths and row heights in page units; rows grow to fit their content. */
+export interface TableObj extends BaseObj {
+  kind: 'table';
+  x: number; y: number;
+  /** Always the sum of cols / rows. */
+  w: number; h: number;
+  cols: number[];
+  rows: number[];
+  /** cells[row][col], plain text. */
+  cells: string[][];
+}
+
+export type PageObject = StrokeObj | TextObj | ImageObj | StickyObj | TableObj;
 
 export interface Page {
   id: string;

@@ -56,6 +56,7 @@ export const icons = {
   nbPen: svg('<path d="M15.2 3.6l5.2 5.2-9.9 9.9-5.2-5.2z"/><path d="M13.2 5.6l5.2 5.2"/><path d="M5.3 13.5l-1.6 6.8 6.8-1.6z" fill="currentColor"/>'),
   nbHighlighter: svg('<path d="M16 3.2l4.8 4.8-8.6 8.6-4.8-4.8z"/><path d="M7.4 11.8L5 16.6l2.4 2.4 4.8-2.4"/><path d="M5 16.6l-1.8 3.6 3.6-1.8"/>'),
   nbEraser: svg('<path d="M14.2 3.8l6 6-9.4 9.4H6.6l-3-3a1.6 1.6 0 010-2.2z"/><path d="M8.6 9.4l6 6"/><path d="M10.8 19.2h9.4"/>'),
+  table: svg('<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M3.5 14.5h17M9.5 4.5v15M15 4.5v15"/>'),
   nbText: svg('<path d="M4 6.5V5h11v1.5"/><path d="M9.5 5v14"/><path d="M7.5 19h4"/><path d="M18 9v10"/><path d="M16.5 9h3M16.5 19h3"/>'),
   nbSelect: svg('<rect x="5" y="5" width="14" height="14" stroke-dasharray="2.2 2.6"/><circle cx="5" cy="5" r="1.7" fill="var(--panel, #fff)"/><circle cx="19" cy="5" r="1.7" fill="var(--panel, #fff)"/><circle cx="5" cy="19" r="1.7" fill="var(--panel, #fff)"/><circle cx="19" cy="19" r="1.7" fill="var(--panel, #fff)"/>'),
   nbShape: svg('<circle cx="8.5" cy="8.5" r="4.8"/><path d="M13 20.5l4.2-7.6 4.3 7.6z"/>'),

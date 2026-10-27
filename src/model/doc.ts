@@ -11,7 +11,7 @@ export const STICKY_ICON = 30;
 export function objBounds(o: PageObject): Rect {
   if (o.kind === 'stroke') return o.bbox;
   if (o.kind === 'sticky' && !o.open) return { x: o.x, y: o.y, w: STICKY_ICON, h: STICKY_ICON };
-  const rot = o.kind === 'sticky' ? 0 : o.rot ?? 0;
+  const rot = o.kind === 'sticky' || o.kind === 'table' ? 0 : o.rot ?? 0;
   if (!rot) return { x: o.x, y: o.y, w: o.w, h: o.h };
   // Rotated box: the axis-aligned box around its four corners.
   const cx = o.x + o.w / 2, cy = o.y + o.h / 2, c = Math.abs(Math.cos(rot)), s = Math.abs(Math.sin(rot));
@@ -43,7 +43,7 @@ export class Change {
     this.dirty.set(page, union(this.dirty.get(page) ?? null, r));
   }
   markObj(o: PageObject) {
-    if (o.kind === 'text' || o.kind === 'sticky') this.texts.add(o.id);
+    if (o.kind === 'text' || o.kind === 'sticky' || o.kind === 'table') this.texts.add(o.id);
     else this.mark(o.page, objBounds(o));
   }
   get empty() {
@@ -132,7 +132,7 @@ export function applyOp(s: DocState, op: Op, ch: Change): Op[] {
       const objs = s.objectsOn(page.id);
       for (const o of objs) {
         s.objects.delete(o.id);
-        if (o.kind === 'text' || o.kind === 'sticky') ch.texts.add(o.id);
+        if (o.kind === 'text' || o.kind === 'sticky' || o.kind === 'table') ch.texts.add(o.id);
       }
       s.pages.splice(i, 1);
       s.order.delete(page.id);

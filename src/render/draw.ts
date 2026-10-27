@@ -3,7 +3,7 @@
 import type { Rect } from '../util/geom';
 import { intersects } from '../util/geom';
 import { objBounds } from '../model/doc';
-import type { FontKind, Page, PageObject, StickyObj, StrokeObj, TextObj } from '../model/types';
+import type { FontKind, Page, PageObject, StickyObj, StrokeObj, TextObj, TableObj } from '../model/types';
 import { buildCenterline, buildPen, fromFlat, type InkPoint } from '../ink/stroke';
 import { media } from './media';
 
@@ -129,6 +129,8 @@ export function drawObject(ctx: CanvasRenderingContext2D, o: PageObject, opts: D
     drawText(ctx, o);
   } else if (o.kind === 'sticky' && opts.text) {
     drawSticky(ctx, o);
+  } else if (o.kind === 'table' && opts.text) {
+    drawTable(ctx, o, !!opts.darkPaper);
   }
   ctx.globalAlpha = 1;
 }
@@ -175,6 +177,46 @@ export function drawText(ctx: CanvasRenderingContext2D, o: TextObj) {
     }
     ctx.fillText(line, o.x, y);
     y += lh;
+  }
+  ctx.restore();
+}
+
+/** Table grid and its typed text (the page shows the same thing as DOM). */
+export function drawTable(ctx: CanvasRenderingContext2D, o: TableObj, dark: boolean) {
+  ctx.save();
+  const line = dark ? 'rgba(255,255,255,0.35)' : 'rgba(60,60,67,0.32)';
+  ctx.strokeStyle = line;
+  ctx.lineWidth = 1;
+  let y = o.y;
+  ctx.font = `15px ${FONTS.sans}`;
+  ctx.fillStyle = dark ? '#f2f2f7' : '#1c1c1e';
+  ctx.textBaseline = 'top';
+  for (let r = 0; r < o.rows.length; r++) {
+    let x = o.x;
+    for (let c = 0; c < o.cols.length; c++) {
+      const w = o.cols[c], h = o.rows[r];
+      ctx.strokeRect(x, y, w, h);
+      const text = o.cells[r]?.[c] ?? '';
+      if (text) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(x, y, w, h);
+        ctx.clip();
+        let ly = y + 7;
+        for (const para of text.split('\n')) {
+          let cur = '';
+          for (const word of para.split(' ')) {
+            const t = cur ? `${cur} ${word}` : word;
+            if (cur && ctx.measureText(t).width > w - 16) { ctx.fillText(cur, x + 8, ly); ly += 20.25; cur = word; } else cur = t;
+          }
+          ctx.fillText(cur, x + 8, ly);
+          ly += 20.25;
+        }
+        ctx.restore();
+      }
+      x += w;
+    }
+    y += o.rows[r];
   }
   ctx.restore();
 }
