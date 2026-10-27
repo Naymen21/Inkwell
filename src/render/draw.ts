@@ -4,16 +4,38 @@ import type { Rect } from '../util/geom';
 import { intersects } from '../util/geom';
 import { objBounds } from '../model/doc';
 import type { FontKind, Page, PageObject, StrokeObj, TextObj } from '../model/types';
-import { buildPath, fromFlat } from '../ink/stroke';
+import { buildCenterline, buildPath, fromFlat, type InkPoint } from '../ink/stroke';
 import { media } from './media';
 
 const pathCache = new WeakMap<StrokeObj, Path2D>();
+
+/**
+ * Paint ink. Highlighter is constant width, so it is one native round-capped
+ * stroke: seamless even when translucent. Pen ink is a filled variable-width outline.
+ */
+export function paintInk(ctx: CanvasRenderingContext2D, pts: InkPoint[], color: string, highlighter: boolean, path?: Path2D) {
+  if (highlighter) {
+    const p = path ?? new Path2D();
+    if (!path) buildCenterline(p, pts);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = pts[0]?.w ?? 1;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.stroke(p);
+    return;
+  }
+  const p = path ?? new Path2D();
+  if (!path) buildPath(p, pts);
+  ctx.fillStyle = color;
+  ctx.fill(p);
+}
 
 export function strokePath(o: StrokeObj): Path2D {
   let p = pathCache.get(o);
   if (!p) {
     p = new Path2D();
-    buildPath(p, fromFlat(o.pts));
+    if (o.tool === 'highlighter') buildCenterline(p, fromFlat(o.pts));
+    else buildPath(p, fromFlat(o.pts));
     pathCache.set(o, p);
   }
   return p;
@@ -87,7 +109,7 @@ export function drawObject(ctx: CanvasRenderingContext2D, o: PageObject, opts: D
     ctx.fillStyle = o.color;
     ctx.globalAlpha = o.opacity * fade;
     if (o.tool === 'highlighter' && !opts.darkPaper) ctx.globalCompositeOperation = 'multiply';
-    ctx.fill(strokePath(o));
+    paintInk(ctx, [{ x: 0, y: 0, w: o.pts[2] ?? 1 }], o.color, o.tool === 'highlighter', strokePath(o));
     ctx.globalCompositeOperation = 'source-over';
   } else if (o.kind === 'image') {
     const img = media.image(o.media);

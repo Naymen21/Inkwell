@@ -36,7 +36,7 @@ export class InkFilter {
     const d = Math.hypot(s.x - this.sx, s.y - this.sy);
     if (d < 0.25) return null;
     this.speed = this.speed * 0.6 + (d / dt) * 0.4;
-    const a = Math.min(1, 0.35 + this.speed * 0.5);
+    const a = Math.min(1, 0.55 + this.speed * 0.45);
     this.sx += (s.x - this.sx) * a;
     this.sy += (s.y - this.sy) * a;
     this.sw += (this.width(s.p, this.speed) - this.sw) * 0.35;
@@ -140,46 +140,46 @@ export interface PathSink {
 }
 
 /**
- * Emit the variable-width ribbon as one closed outline (left side forward,
- * round cap, right side back, round cap) plus discs at sharp turns. Filled
- * with nonzero winding the pieces union, so translucent ink never doubles up.
+ * Emit the variable-width ribbon as a union of convex pieces: one quad per
+ * segment plus a round disc at each end and wherever the path turns. Every
+ * piece has the same (positive) winding, so under the nonzero rule overlaps
+ * always add up and never cancel — no holes on fast, sharp strokes, and one
+ * fill means translucent ink (highlighter) never doubles up.
  */
 export function buildPath(sink: PathSink, input: InkPoint[]) {
   const P = input.length > 2 ? spline(input) : input;
   const n = P.length;
   if (!n) return;
-  if (n === 1 || (n === 2 && Math.hypot(P[1].x - P[0].x, P[1].y - P[0].y) < 0.01)) {
-    disc(sink, P[0].x, P[0].y, Math.max(0.3, P[0].w / 2));
-    return;
-  }
-  const nx: number[] = [], ny: number[] = [];
-  let px = 0, py = 1;
-  for (let i = 0; i < n; i++) {
-    const a = P[Math.max(0, i - 1)], b = P[Math.min(n - 1, i + 1)];
+  const r = (i: number) => Math.max(0.3, P[i].w / 2);
+  disc(sink, P[0].x, P[0].y, r(0));
+  let pdx = 0, pdy = 0;
+  for (let i = 1; i < n; i++) {
+    const a = P[i - 1], b = P[i];
     let dx = b.x - a.x, dy = b.y - a.y;
     const l = Math.hypot(dx, dy);
-    if (l > 1e-6) { dx /= l; dy /= l; px = -dy; py = dx; }
-    nx.push(px); ny.push(py);
+    if (l < 1e-6) continue;
+    dx /= l; dy /= l;
+    // Round join where the direction changes enough to open a wedge on the outside.
+    if ((pdx || pdy) && dx * pdx + dy * pdy < 0.995) disc(sink, a.x, a.y, r(i - 1));
+    pdx = dx; pdy = dy;
+    const nx = -dy, ny = dx, r0 = r(i - 1), r1 = r(i);
+    sink.moveTo(a.x - nx * r0, a.y - ny * r0);
+    sink.lineTo(b.x - nx * r1, b.y - ny * r1);
+    sink.lineTo(b.x + nx * r1, b.y + ny * r1);
+    sink.lineTo(a.x + nx * r0, a.y + ny * r0);
+    sink.closePath();
   }
-  const r = (i: number) => Math.max(0.25, P[i].w / 2);
-  sink.moveTo(P[0].x + nx[0] * r(0), P[0].y + ny[0] * r(0));
-  for (let i = 1; i < n; i++) sink.lineTo(P[i].x + nx[i] * r(i), P[i].y + ny[i] * r(i));
-  const ae = Math.atan2(ny[n - 1], nx[n - 1]);
-  sink.arc(P[n - 1].x, P[n - 1].y, r(n - 1), ae, ae - Math.PI, true);
-  for (let i = n - 2; i >= 0; i--) sink.lineTo(P[i].x - nx[i] * r(i), P[i].y - ny[i] * r(i));
-  const as = Math.atan2(-ny[0], -nx[0]);
-  sink.arc(P[0].x, P[0].y, r(0), as, as - Math.PI, true);
-  sink.closePath();
-  // Round joins where the direction turns sharply (the averaged normal pinches there).
-  for (let i = 1; i < n - 1; i++) {
-    const ax = P[i].x - P[i - 1].x, ay = P[i].y - P[i - 1].y;
-    const bx = P[i + 1].x - P[i].x, by = P[i + 1].y - P[i].y;
-    const la = Math.hypot(ax, ay), lb = Math.hypot(bx, by);
-    if (la < 1e-6 || lb < 1e-6) continue;
-    // Emitted twice: a reversed outline loop at the corner has winding -1, and a
-    // single +1 disc would cancel it to 0 (a hole) under the nonzero rule.
-    if ((ax * bx + ay * by) / (la * lb) < 0.8) { disc(sink, P[i].x, P[i].y, r(i)); disc(sink, P[i].x, P[i].y, r(i)); }
-  }
+  if (n > 1) disc(sink, P[n - 1].x, P[n - 1].y, r(n - 1));
+}
+
+/** Smoothed centerline only — for constant-width ink drawn with a native round-capped stroke. */
+export function buildCenterline(sink: PathSink, input: InkPoint[]) {
+  const P = input.length > 2 ? spline(input) : input;
+  if (!P.length) return;
+  sink.moveTo(P[0].x, P[0].y);
+  // A lone point still needs a segment for the round cap to draw a dot.
+  if (P.length === 1) sink.lineTo(P[0].x + 0.01, P[0].y);
+  for (let i = 1; i < P.length; i++) sink.lineTo(P[i].x, P[i].y);
 }
 
 function disc(sink: PathSink, x: number, y: number, r: number) {

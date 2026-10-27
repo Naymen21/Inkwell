@@ -47,6 +47,7 @@ export async function renderLibrary(mount: HTMLElement, open: (id: string) => vo
 
   // Sidebar: settings + search sit above the navigation and never re-render (keeps focus).
   const sideTop = h('div', 'side-top');
+  sideTop.append(h('div', 'brand', `<span class="brand-mark">${icons.pen}</span>Inkwell`));
   const gear = h('button', 'icon-btn', icons.gear);
   gear.title = 'Settings';
   gear.setAttribute('aria-label', 'Settings');
@@ -68,6 +69,9 @@ export async function renderLibrary(mount: HTMLElement, open: (id: string) => vo
   menuBtn.setAttribute('aria-label', 'Folders');
   menuBtn.onclick = () => root.classList.toggle('side-open');
   const title = h('h1', 'lib-title');
+  const sub = h('div', 'lib-sub');
+  const heading = h('div', 'lib-heading');
+  heading.append(title, sub);
   const moreBtn = h('button', 'icon-btn soft', icons.more);
   moreBtn.setAttribute('aria-label', 'Sort and import');
   moreBtn.onclick = () => libMenu(moreBtn);
@@ -76,7 +80,7 @@ export async function renderLibrary(mount: HTMLElement, open: (id: string) => vo
     const n = await createNote(currentFolder());
     open(n.id);
   };
-  header.append(menuBtn, title, moreBtn, newBtn);
+  header.append(menuBtn, heading, moreBtn, newBtn);
   const grid = h('div', 'grid');
   main.append(header, grid);
 
@@ -227,6 +231,7 @@ export async function renderLibrary(mount: HTMLElement, open: (id: string) => vo
     newBtn.style.display = f === 'trash' ? 'none' : '';
     grid.innerHTML = '';
     const list = filtered();
+    sub.textContent = `${list.length} ${list.length === 1 ? 'note' : 'notes'}${state.query ? ' found' : ''}`;
     if (!list.length) {
       grid.append(h('div', 'empty', f === 'trash'
         ? `<p>Nothing here. Deleted notes stay for ${TRASH_DAYS} days.</p>`

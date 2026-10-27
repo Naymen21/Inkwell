@@ -124,7 +124,8 @@ export class Editor {
     this.world.className = 'world';
     this.overlay = document.createElement('canvas');
     this.overlay.className = 'overlay';
-    this.octx = this.overlay.getContext('2d')!;
+    // desynchronized: lets the browser present ink without waiting on the compositor (lower latency).
+    this.octx = (this.overlay.getContext('2d', { desynchronized: true }) ?? this.overlay.getContext('2d'))!;
     this.viewport.append(this.world, this.overlay);
     this.text = new TextLayer(this);
     this.tools = {
@@ -136,6 +137,7 @@ export class Editor {
     this.root.append(this.viewport, this.toolbar.el, this.toolbar.pagesPanel, this.toolbar.selMenu, this.toolbar.playbar, this.toolbar.pageBadge);
     mount.append(this.root);
     this.root.classList.toggle('tool-text', settings.tool === 'text');
+    this.root.classList.toggle('dot-cursor', ['pen', 'highlighter', 'shape', 'eraser'].includes(settings.tool));
 
     this.unsubs.push(doc.on((ch, logged) => this.onChange(ch, logged)));
     this.unsubs.push(media.onLoad((hash) => this.onMedia(hash)));
@@ -324,6 +326,43 @@ export class Editor {
     ctx.save();
     this.tool.overlay?.(ctx);
     ctx.restore();
+    if (this.hover && this.drawId == null) this.drawCursor(ctx, this.hover);
+  }
+
+  /** Hover cursor for mouse/pencil hover: a dot showing the real tip size and ink color. */
+  private hover: Pt | null = null;
+  private drawCursor(ctx: CanvasRenderingContext2D, w: Pt) {
+    const t = settings.tool;
+    if (t !== 'pen' && t !== 'highlighter' && t !== 'shape' && t !== 'eraser') return;
+    const { z, tx, ty } = this.cam;
+    const d = this.dpr;
+    const x = (tx + w.x * z) * d, y = (ty + w.y * z) * d;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.beginPath();
+    if (t === 'eraser') {
+      ctx.arc(x, y, (settings.eraser.size / 2) * d, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      ctx.fill();
+      ctx.lineWidth = d;
+      ctx.strokeStyle = 'rgba(28,25,23,0.55)';
+      ctx.stroke();
+      return;
+    }
+    const hl = t === 'highlighter';
+    const r = Math.max(1.6 * d, ((hl ? settings.highlighter.width : settings.pen.width) / 2) * z * d);
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = hl ? settings.highlighter.color : settings.pen.color;
+    ctx.globalAlpha = hl ? 0.6 : 1;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.lineWidth = 1.2 * d;
+    ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(x, y, r + 1.2 * d, 0, Math.PI * 2);
+    ctx.lineWidth = 0.8 * d;
+    ctx.strokeStyle = 'rgba(28,25,23,0.35)';
+    ctx.stroke();
   }
 
   setHidden(ids: string[]) {
@@ -426,6 +465,7 @@ export class Editor {
     saveSettings();
     this.tool = this.tools[name];
     this.root.classList.toggle('tool-text', name === 'text');
+    this.root.classList.toggle('dot-cursor', name === 'pen' || name === 'highlighter' || name === 'shape' || name === 'eraser');
     this.toolbar.update();
     this.requestFrame();
   }
@@ -547,6 +587,7 @@ export class Editor {
     on(v, 'lostpointercapture', (e: PointerEvent) => { if (e.pointerId === this.drawId) this.onUp(e, false); });
     on(v, 'wheel', (e: WheelEvent) => this.onWheel(e), { passive: false });
     on(v, 'contextmenu', (e: Event) => e.preventDefault());
+    on(v, 'pointerleave', () => { this.hover = null; this.requestFrame(); });
     // Safari trackpad pinch (macOS) arrives as gesture events.
     let gs = 1;
     on(v, 'gesturestart', (e: any) => { e.preventDefault(); gs = 1; });
@@ -640,12 +681,14 @@ export class Editor {
     if (e.pointerId === this.drawId) {
       const co = e.getCoalescedEvents?.();
       const samples = (co && co.length ? co : [e]).map((x) => this.sample(x));
-      const pr = e.getPredictedEvents?.() ?? [];
+      // Mouse prediction is linear extrapolation that zig-zags at the tip; only trust pens.
+      const pr = e.pointerType === 'pen' ? e.getPredictedEvents?.() ?? [] : [];
       this.tool.move(samples, pr.map((x) => this.sample(x)));
       return;
     }
     if (this.ignored.has(e.pointerId)) return;
     const p = this.local(e);
+    if (e.pointerType !== 'touch' && !e.buttons) { this.hover = this.screenToWorld(p.x, p.y); this.requestFrame(); }
     if (this.tap?.id === e.pointerId && Math.hypot(p.x - this.tap.x, p.y - this.tap.y) > 8) this.tap = null;
     if (this.ptrs.has(e.pointerId)) this.ptrs.set(e.pointerId, p);
     const g = this.gesture;

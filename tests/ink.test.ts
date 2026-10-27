@@ -111,3 +111,32 @@ describe('shape recognition', () => {
     expect(recognizeShape(pts)).toBeNull();
   });
 });
+
+describe('stroke outline winding', () => {
+  // Every emitted piece must wind the same way, or overlaps cancel into holes.
+  it('all pieces have positive signed area', () => {
+    const pts: InkPoint[] = [];
+    for (let i = 0; i < 40; i++) pts.push({ x: (i % 2) * 60 + i, y: i * 3, w: 6 }); // fast zig-zag
+    const polys: number[][][] = [];
+    let cur: number[][] = [];
+    const sink = {
+      moveTo: (x: number, y: number) => { cur = [[x, y]]; polys.push(cur); },
+      lineTo: (x: number, y: number) => { cur.push([x, y]); },
+      arc: (x: number, y: number, r: number, a0: number, a1: number, ccw?: boolean) => {
+        expect(ccw ?? false).toBe(false);
+        for (let k = 1; k <= 16; k++) { const t = a0 + ((a1 - a0) * k) / 16; cur.push([x + r * Math.cos(t), y + r * Math.sin(t)]); }
+      },
+      closePath: () => {},
+    };
+    buildPath(sink, pts);
+    expect(polys.length).toBeGreaterThan(10);
+    for (const poly of polys) {
+      let area = 0;
+      for (let i = 0; i < poly.length; i++) {
+        const [x0, y0] = poly[i], [x1, y1] = poly[(i + 1) % poly.length];
+        area += x0 * y1 - x1 * y0;
+      }
+      expect(area).toBeGreaterThan(0);
+    }
+  });
+});

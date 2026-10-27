@@ -4,11 +4,11 @@ import { objBounds, strokeBBox } from '../model/doc';
 import type { Op, PageObject, StrokeObj, TextObj } from '../model/types';
 import { splitStroke, sweepBounds, sweepHitsStroke, pointNearStroke, type Sweep } from '../ink/erase';
 import { recognizeShape, type Shape } from '../ink/shapes';
-import { InkFilter, buildPath, densify, simplify, straighten, toFlat, type InkPoint, type Sample } from '../ink/stroke';
+import { InkFilter, densify, simplify, straighten, toFlat, type InkPoint, type Sample } from '../ink/stroke';
 import { inRect, inflate, intersects, pointInPolygon, union, type Pt, type Rect } from '../util/geom';
 import { uid } from '../util/ids';
 import type { PageView } from '../render/pageView';
-import { drawObject, isDark } from '../render/draw';
+import { drawObject, isDark, paintInk } from '../render/draw';
 import type { Editor } from './editor';
 import { settings } from './settings';
 
@@ -27,7 +27,7 @@ const local = (pv: PageView, s: Sample): Sample => ({ x: s.x - pv.x, y: s.y - pv
 
 export class InkTool implements Tool {
   private live: {
-    pv: PageView; filter: InkFilter; raw: Sample[]; pred: InkPoint[];
+    pv: PageView; filter: InkFilter; raw: Sample[]; pred: InkPoint[]; tip: InkPoint | null;
     createdAt: number; anchor: Pt; shape: Shape | null; timer: number;
   } | null = null;
 
@@ -45,7 +45,7 @@ export class InkTool implements Tool {
     const l = local(pv, s);
     const filter = new InkFilter(this.style());
     filter.push(l);
-    this.live = { pv, filter, raw: [l], pred: [], createdAt: this.ed.timeline(), anchor: { x: l.x, y: l.y }, shape: null, timer: 0 };
+    this.live = { pv, filter, raw: [l], pred: [], tip: null, createdAt: this.ed.timeline(), anchor: { x: l.x, y: l.y }, shape: null, timer: 0 };
     this.arm();
     this.ed.requestFrame();
   }
@@ -64,9 +64,12 @@ export class InkTool implements Tool {
         this.arm();
       }
     }
-    // Predicted touches are drawn ahead of the pen tip but never committed.
+    // The smoothed path trails the pen slightly; draw through to the real tip so
+    // ink stays glued to it. Predicted points extend it a frame ahead (never committed).
     const w = L.filter.pts.at(-1)?.w ?? this.style().width;
-    L.pred = predicted.map((s) => { const l = local(L.pv, s); return { x: l.x, y: l.y, w }; });
+    const last = L.raw[L.raw.length - 1];
+    L.tip = { x: last.x, y: last.y, w };
+    L.pred = predicted.slice(0, 1).map((s) => { const l = local(L.pv, s); return { x: l.x, y: l.y, w }; });
     this.ed.requestFrame();
   }
 
@@ -117,14 +120,11 @@ export class InkTool implements Tool {
     const L = this.live;
     if (!L) return;
     this.ed.pageTransform(ctx, L.pv);
-    const p = new Path2D();
-    const pts = L.shape ? shapeInk(L.shape, avgWidth(L.filter.pts, this.style().width)) : [...L.filter.pts, ...L.pred];
-    buildPath(p, pts);
+    const pts = L.shape ? shapeInk(L.shape, avgWidth(L.filter.pts, this.style().width)) : [...L.filter.pts, ...(L.tip ? [L.tip] : []), ...L.pred];
     const hl = this.kind === 'highlighter';
-    ctx.fillStyle = hl ? settings.highlighter.color : settings.pen.color;
     ctx.globalAlpha = hl ? 0.5 : 1;
     if (hl && !isDark(L.pv.page.paper)) ctx.globalCompositeOperation = 'multiply';
-    ctx.fill(p);
+    paintInk(ctx, pts, hl ? settings.highlighter.color : settings.pen.color, hl);
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
   }
@@ -476,11 +476,11 @@ export class LassoTool implements Tool {
       ctx.beginPath();
       this.poly.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
       if (settings.lassoMode === 'rect') ctx.closePath();
-      ctx.fillStyle = 'rgba(64,132,255,0.07)';
+      ctx.fillStyle = 'rgba(217,119,6,0.07)';
       ctx.fill();
       ctx.setLineDash([5 / z, 4 / z]);
       ctx.lineWidth = 1.5 / z;
-      ctx.strokeStyle = '#3b82f6';
+      ctx.strokeStyle = '#c2620a';
       ctx.stroke();
       ctx.setLineDash([]);
       return;
@@ -506,7 +506,7 @@ export class LassoTool implements Tool {
     const pad = 6 / z;
     ctx.setLineDash([6 / z, 4 / z]);
     ctx.lineWidth = 1.5 / z;
-    ctx.strokeStyle = '#3b82f6';
+    ctx.strokeStyle = '#c2620a';
     ctx.strokeRect(a.x - pad, a.y - pad, c.x - a.x + 2 * pad, c.y - a.y + 2 * pad);
     ctx.setLineDash([]);
     ctx.beginPath();

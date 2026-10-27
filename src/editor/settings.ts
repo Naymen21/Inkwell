@@ -21,7 +21,7 @@ export interface Settings {
 
 export const PEN_COLORS = ['#1c1c1e', '#e5484d', '#8e8e93', '#ffffff', '#7a4b2a', '#30a46c', '#3e7bfa', '#8e4ec6'];
 export const HL_COLORS = ['#ffe14d', '#7ef08a', '#7fd3ff', '#ff9ad5', '#ffb26b'];
-export const PAPER_COLORS = ['#ffffff', '#fbf6e8', '#eef3f8', '#24262b'];
+export const PAPER_COLORS = ['#ffffff', '#fbf7ee', '#f1f4f8', '#262321'];
 
 const defaults: Settings = {
   tool: 'pen',
