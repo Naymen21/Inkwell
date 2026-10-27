@@ -288,9 +288,10 @@ export async function renderLibrary(mount: HTMLElement, open: (id: string) => vo
       card.onclick = () => { if (!n.trashed) open(n.id); else noteMenu(n, more); };
       if (!n.trashed) {
         makeDraggable(card, () => {
+          // A small copy of the card itself: preview, title and date.
           const g = h('div', 'card-ghost');
-          g.append(thumb.cloneNode(true), h('span', 'ghost-title', esc(n.title)));
-          return g;
+          g.append(thumb.cloneNode(true), h('span', 'ghost-title', esc(n.title)), h('span', 'ghost-sub', esc(date)));
+          return { ghost: g, thumb: n.thumb };
         }, {
           onStart: () => { if (window.innerWidth <= 760) root.classList.add('side-open'); },
           onDrop: (target) => dropNote(n, target),
@@ -301,7 +302,7 @@ export async function renderLibrary(mount: HTMLElement, open: (id: string) => vo
     }
   }
 
-  async function dropNote(n: NoteMeta, target: string) {
+  async function dropNote(n: NoteMeta, target: string): Promise<boolean> {
     root.classList.remove('side-open');
     try {
       if (target === 'trash') {
@@ -309,12 +310,13 @@ export async function renderLibrary(mount: HTMLElement, open: (id: string) => vo
         toast(`Moved “${n.title}” to Recently deleted`);
       } else {
         const folder = target === 'unfiled' ? null : target;
-        if (folder === n.folder) return;
+        if (folder === n.folder) { toast(`“${n.title}” is already there`); return false; }
         await db.putNote({ ...n, folder });
         toast(`Moved “${n.title}” to ${folder ? folderOf(folder)?.name ?? 'folder' : 'Unfiled'}`);
       }
-    } catch (e) { storageFailed(e); return; }
-    reload();
+    } catch (e) { storageFailed(e); return false; }
+    await reload();
+    return true;
   }
 
   function noteMenu(n: NoteMeta, anchor: HTMLElement) {

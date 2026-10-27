@@ -865,3 +865,18 @@ button:not(:disabled):active { transform: scale(0.95); }
 body.dragging-note, body.dragging-note * { cursor: grabbing !important; -webkit-user-select: none; user-select: none; }
 .nav-item[data-drop] { transition: background-color 0.12s, box-shadow 0.12s; }
 .nav-item.drop-hover { background: var(--accent-soft) !important; color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }
+
+/* Drag preview: a mini copy of the card; shrinks over a folder and flies in on drop. */
+.drag-ghost { width: 140px; padding: 8px 8px 10px; gap: 4px; border-radius: 14px; transition: transform 0.08s linear; transform-origin: 50% 50%; }
+.drag-ghost.over-target { box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22), 0 0 0 2px var(--accent); }
+.drag-ghost.landing { transition: transform 0.24s cubic-bezier(0.3, 0.7, 0.4, 1), opacity 0.24s ease-in; }
+.ghost-sub { font-size: 10.5px; color: var(--muted); }
+.drop-mini {
+  width: 26px; height: 32px; margin-left: auto; flex: none; border-radius: 4px; overflow: hidden; background: #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.18); animation: mini-in 0.18s cubic-bezier(0.3, 0.7, 0.4, 1);
+}
+.drop-mini img { width: 100%; height: 100%; object-fit: cover; object-position: top; display: block; }
+@keyframes mini-in { from { transform: scale(0.4) translateX(10px); opacity: 0; } }
+.nav-item.drop-hover .ni-count, .nav-item.drop-hover .ni-more { display: none !important; }
+.nav-item.drop-done { animation: drop-pulse 0.55s ease-out; }
+@keyframes drop-pulse { 0% { background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); } 100% { background: transparent; box-shadow: none; } }
