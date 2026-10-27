@@ -1,7 +1,7 @@
 // The note editor: owns the document, camera, page views, input pipeline,
 // persistence wiring and audio. Tools and UI hang off it.
 import { Change, DocState, NoteDocument, objBounds, opOrder, applyOp } from '../model/doc';
-import type { LoggedOp, NoteMeta, Op, Page, PageObject, Snapshot } from '../model/types';
+import type { LoggedOp, NoteMeta, Op, OutlineEntry, Page, PageObject, Snapshot, StickyObj, TextObj } from '../model/types';
 import { PAGE_SIZES } from '../model/types';
 import type { Sample } from '../ink/stroke';
 import { db } from '../persist/db';
@@ -14,7 +14,7 @@ import { toast } from '../ui/modal';
 import { Player, Recorder, recoverClips, timelineEnd } from './audio';
 import { settings, saveSettings, type ToolName } from './settings';
 import { TextLayer } from './textLayer';
-import { EraserTool, InkTool, LassoTool, TextTool, hitObject, type Tool } from './tools';
+import { EraserTool, InkTool, LassoTool, OBJECTS_MARKER, TextTool, hitObject, type Tool } from './tools';
 import { Toolbar } from './toolbar';
 
 const GAP = 12;
@@ -36,9 +36,9 @@ export function newPage(after?: Page): Page {
   };
 }
 
-export async function createNote(folder: string | null, title = 'Untitled note', pages?: Page[]): Promise<NoteMeta> {
+export async function createNote(folder: string | null, title = 'Untitled note', pages?: Page[], outline?: OutlineEntry[]): Promise<NoteMeta> {
   const now = Date.now();
-  const meta: NoteMeta = { id: uid(), title, folder, created: now, modified: now, clips: [] };
+  const meta: NoteMeta = { id: uid(), title, folder, created: now, modified: now, clips: [], ...(outline?.length ? { outline } : {}) };
   const ps = pages?.length ? pages : [newPage()];
   const snap: Snapshot = { pages: ps, objects: Object.fromEntries(ps.map((p) => [p.id, []])) };
   // Born as a snapshot (not ops) so the first page can't be undone away.
@@ -96,7 +96,7 @@ export class Editor {
   private unsubs: (() => void)[] = [];
   private closed = false;
 
-  static async open(id: string, mount: HTMLElement, onExit: () => void): Promise<Editor> {
+  static async open(id: string, mount: HTMLElement, onExit: () => void, page?: number): Promise<Editor> {
     const meta = await db.getNote(id);
     if (!meta) throw new Error('Note not found');
     const { snap, ops } = await db.loadDoc(id);
@@ -115,6 +115,8 @@ export class Editor {
     const doc = new NoteDocument(deviceId(), state, lamport);
     const ed = new Editor(meta, doc, mount, onExit);
     ed.opsSinceSnap = ops.length;
+    // Deep link to a page (1-based).
+    if (page && ed.pages[page - 1]) ed.scrollToPage(ed.pages[page - 1]);
     return ed;
   }
 
@@ -441,7 +443,7 @@ export class Editor {
     m.modified = Date.now();
     m.pageCount = this.doc.state.pages.length;
     const texts: string[] = [];
-    for (const o of this.doc.state.objects.values()) if (o.kind === 'text') texts.push(o.text);
+    for (const o of this.doc.state.objects.values()) if (o.kind === 'text' || o.kind === 'sticky') texts.push(o.text);
     m.searchText = texts.join(' ').slice(0, 8000);
     if (thumb) {
       const p = this.doc.state.pages[0];
@@ -634,6 +636,7 @@ export class Editor {
 
   private onDown(e: PointerEvent) {
     if (this.text.isEditingTarget(e.target)) return;
+    if ((e.target as HTMLElement).closest?.('.sticky')) return; // stickies handle their own taps and drags
     if ((e.target as HTMLElement).closest?.('.sel-menu')) return;
     this.text.finish();
     cancelAnimationFrame(this.inertia);
@@ -678,7 +681,19 @@ export class Editor {
     this.startDraw(e);
   }
 
+  /** One-shot "Highlight next stroke" (toolbar), or a held modifier for this stroke. */
+  highlightNext = false;
+  private altInk = false;
+  /** Called by the pen at stroke start: should this stroke be a highlight? Clears the one-shot. */
+  takeHighlight(): boolean {
+    const yes = this.highlightNext || this.altInk;
+    if (this.highlightNext) { this.highlightNext = false; this.toolbar.renderStrip(); }
+    return yes;
+  }
+
   private startDraw(e: PointerEvent) {
+    // Shift (keyboard) or a pen's barrel button turns this pen stroke into a highlight.
+    this.altInk = e.shiftKey || (e.pointerType === 'pen' && (e.buttons & 2) !== 0);
     this.drawId = e.pointerId;
     this.drawType = e.pointerType;
     this.tool.down(this.sample(e));
@@ -831,10 +846,47 @@ export class Editor {
 
   private onPaste(e: ClipboardEvent) {
     const t = e.target as HTMLElement;
-    if (t && (t.isContentEditable || t.tagName === 'INPUT')) return;
+    if (t && (t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
     const img = [...(e.clipboardData?.files ?? [])].find((f) => f.type.startsWith('image/'));
     if (img) { e.preventDefault(); this.insertImage(img); return; }
+    const text = e.clipboardData?.getData('text/plain') ?? '';
+    // Inkwell's own copy leaves a marker on the system clipboard; anything else is outside text.
+    if (text && text !== OBJECTS_MARKER) { e.preventDefault(); this.pasteText(text); return; }
     this.pasteHere();
+  }
+
+  /** Drop a new open sticky note near the middle of the screen. */
+  addSticky() {
+    const pv = this.currentPage();
+    const c = this.screenToWorld(this.vw / 2, this.vh / 3);
+    const w = 220, h = 170;
+    const obj: StickyObj = {
+      kind: 'sticky', id: uid(), page: pv.page.id, createdAt: this.timeline(),
+      x: Math.max(12, Math.min(pv.page.w - w - 12, c.x - pv.x - w / 2)), y: Math.max(12, Math.min(pv.page.h - h - 12, c.y - pv.y)),
+      w, h, text: '', color: '#fff3a3', open: true,
+    };
+    this.commitContent([{ t: 'add', obj }], pv.page.id);
+    this.text.focusSticky(obj.id);
+  }
+
+  /**
+   * Paste and match formatting: outside text drops its fonts, colors and
+   * sizes and becomes a text box in the current text style.
+   */
+  pasteText(raw: string) {
+    const text = raw.replace(/\r\n?/g, '\n').replace(/\u00a0/g, ' ').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+    if (!text) return;
+    const pv = this.currentPage();
+    const c = this.screenToWorld(this.vw / 2, this.vh / 3);
+    const t = settings.text;
+    const w = Math.min(420, pv.page.w - 72);
+    const x = Math.max(36, Math.min(pv.page.w - w - 36, c.x - pv.x - w / 2));
+    const y = Math.max(36, Math.min(pv.page.h - 60, c.y - pv.y));
+    const perLine = Math.max(10, Math.floor(w / (t.size * 0.52)));
+    const lines = text.split('\n').reduce((n, l) => n + Math.max(1, Math.ceil(l.length / perLine)), 0);
+    const obj: TextObj = { kind: 'text', id: uid(), page: pv.page.id, createdAt: this.timeline(), x, y, w, h: lines * t.size * 1.3, text, size: t.size, color: t.color, bold: t.bold, font: t.font };
+    this.commitContent([{ t: 'add', obj }], pv.page.id);
+    toast('Pasted in your text style');
   }
 
   pasteHere() {

@@ -4,6 +4,7 @@ export type ToolName = 'pen' | 'highlighter' | 'eraser' | 'lasso' | 'shape' | 't
 /** Everything that can sit in the tool dock. */
 export type DockItem = ToolName | 'insert' | 'mic' | 'hand';
 export interface DockSlot { id: DockItem; hidden: boolean }
+export interface Favorite { tool: 'pen' | 'highlighter'; color: string; width: number }
 export type Appearance = 'system' | 'light' | 'dark';
 
 export const DEFAULT_DOCK: DockItem[] = ['pen', 'shape', 'highlighter', 'eraser', 'text', 'lasso', 'insert', 'mic', 'hand'];
@@ -26,6 +27,8 @@ export interface Settings {
   appearance: Appearance;
   /** Inkly answers per day on the hosted (Gemini) app. */
   inklyDailyCredits: number;
+  /** One-tap pen/highlighter presets shown in the options row. */
+  favorites: Favorite[];
   paper: { template: Template; color: string; size: 'letter' | 'a4' };
 }
 
@@ -52,6 +55,13 @@ const defaults: Settings = {
   // Free Gemini allows ~1,000+ requests/day per model (per project, Oct 2026).
   // 250 per device keeps 2 people x 2 devices within one model's daily limit.
   inklyDailyCredits: 250,
+  favorites: [
+    { tool: 'pen', color: '#1c1c1e', width: 2.2 },
+    { tool: 'pen', color: '#3e7bfa', width: 2.2 },
+    { tool: 'pen', color: '#e5484d', width: 3.6 },
+    { tool: 'highlighter', color: '#ffe14d', width: 14 },
+    { tool: 'highlighter', color: '#7ef08a', width: 14 },
+  ],
   paper: { template: 'grid', color: '#ffffff', size: 'letter' },
 };
 

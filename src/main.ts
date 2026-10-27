@@ -12,14 +12,14 @@ let closeLibrary: (() => void) | null = null;
 let routing = Promise.resolve();
 
 async function route() {
-  const m = /^#\/note\/([\w-]+)/.exec(location.hash);
+  const m = /^#\/note\/([\w-]+)(?:\/p(\d+))?/.exec(location.hash);
   if (editor) { const e = editor; editor = null; await e.close(); }
   closeLibrary?.();
   closeLibrary = null;
   app.innerHTML = '';
   if (m) {
     try {
-      editor = await Editor.open(m[1], app, () => { location.hash = '#/'; });
+      editor = await Editor.open(m[1], app, () => { location.hash = '#/'; }, m[2] ? Number(m[2]) : undefined);
     } catch (e) {
       console.error(e);
       toast('That note could not be opened');

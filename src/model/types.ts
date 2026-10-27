@@ -40,7 +40,17 @@ export interface ImageObj extends BaseObj {
   media: string;
 }
 
-export type PageObject = StrokeObj | TextObj | ImageObj;
+/** A floating sticky note: a small icon when collapsed, a card when open. */
+export interface StickyObj extends BaseObj {
+  kind: 'sticky';
+  /** Position of the icon / card's top-left; w,h are the open card's size. */
+  x: number; y: number; w: number; h: number;
+  text: string;
+  color: string;
+  open: boolean;
+}
+
+export type PageObject = StrokeObj | TextObj | ImageObj | StickyObj;
 
 export interface Page {
   id: string;
@@ -84,6 +94,9 @@ export interface Clip {
   mime: string;
 }
 
+/** One table-of-contents entry (from an imported PDF's outline). */
+export interface OutlineEntry { title: string; page: string; level: number }
+
 export interface NoteMeta {
   id: string;
   title: string;
@@ -95,6 +108,7 @@ export interface NoteMeta {
   searchText?: string;
   clips: Clip[];
   pageCount?: number;
+  outline?: OutlineEntry[];
 }
 
 export interface Folder {

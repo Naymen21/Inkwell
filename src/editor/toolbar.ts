@@ -15,6 +15,7 @@ import { db } from '../persist/db';
 import { InklyPanel } from './inkly';
 import { pickFile } from '../ui/pickFiles';
 import { Recorder } from './audio';
+import { inClaude } from '../util/claude';
 
 const h = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', html = '') => {
   const e = document.createElement(tag);
@@ -271,7 +272,7 @@ export class Toolbar {
 
   renderStrip() {
     const tool = settings.tool;
-    const key = JSON.stringify([tool, settings.pen, settings.highlighter, settings.eraser, settings.text, settings.lassoMode, this.ed.playT != null, hasClipboard(), settings.recentColors]);
+    const key = JSON.stringify([tool, settings.pen, settings.highlighter, settings.eraser, settings.text, settings.lassoMode, this.ed.playT != null, hasClipboard(), settings.recentColors, settings.favorites, settings.autoDeselectEraser, this.ed.highlightNext]);
     if (key === this.optsKey) return;
     this.optsKey = key;
     const s = this.opts;
@@ -281,11 +282,18 @@ export class Toolbar {
       return;
     }
     const save = () => { saveSettings(); this.update(); };
+    if (tool === 'pen' || tool === 'shape' || tool === 'highlighter') { this.favorites(s); s.append(h('span', 'vsep')); }
     if (tool === 'pen' || tool === 'shape') {
       // Notability order: colors, then sizes.
       this.colors(s, PEN_COLORS, settings.pen.color, (c) => { settings.pen.color = c; save(); });
       s.append(h('span', 'vsep'));
       this.sizes(s, settings.penWidths, settings.pen.width, (w) => { settings.pen.width = w; save(); });
+      if (tool === 'pen') {
+        s.append(h('span', 'vsep'));
+        const hl = this.chip(icons.nbHighlighter, 'Highlight next', this.ed.highlightNext, () => { this.ed.highlightNext = !this.ed.highlightNext; this.optsKey = ''; this.renderStrip(); });
+        hl.title = 'Your next pen stroke becomes a highlight (or hold Shift / the pen button while drawing)';
+        s.append(hl);
+      }
     } else if (tool === 'highlighter') {
       this.colors(s, HL_COLORS, settings.highlighter.color, (c) => { settings.highlighter.color = c; save(); });
       s.append(h('span', 'vsep'));
@@ -297,6 +305,7 @@ export class Toolbar {
         this.chip(icons.whole, 'Whole', settings.eraser.mode === 'stroke', () => { settings.eraser.mode = 'stroke'; save(); }),
         this.chip(icons.partial, 'Partial', settings.eraser.mode === 'partial', () => { settings.eraser.mode = 'partial'; save(); }),
         this.chip(icons.highlighter, 'Highlights only', settings.eraser.highlighterOnly, () => { settings.eraser.highlighterOnly = !settings.eraser.highlighterOnly; save(); }),
+        this.chip(icons.undo, 'Auto-switch back', settings.autoDeselectEraser, () => { settings.autoDeselectEraser = !settings.autoDeselectEraser; save(); }),
       );
     } else if (tool === 'lasso') {
       s.append(
@@ -325,6 +334,42 @@ export class Toolbar {
       s.append(font, minus, sz, plus, bold, h('span', 'vsep'));
       this.colors(s, PEN_COLORS, t.color, (c) => { t.color = c; apply(); }, true);
     }
+  }
+
+  /** Five favorite pens: tap to use, long-press (or right-click) to save the current pen there. */
+  private favorites(s: HTMLElement) {
+    settings.favorites.forEach((f, i) => {
+      const on = settings.tool === f.tool && (f.tool === 'pen' ? settings.pen : settings.highlighter).color.toLowerCase() === f.color.toLowerCase()
+        && Math.abs((f.tool === 'pen' ? settings.pen : settings.highlighter).width - f.width) < 0.01;
+      const b = h('button', `fav${on ? ' on' : ''}`);
+      const w = Math.max(2, Math.min(10, f.tool === 'highlighter' ? f.width * 0.45 : f.width * 1.4));
+      b.innerHTML = `<svg viewBox="0 0 30 20" width="30" height="20" aria-hidden="true"><path d="M4 13c5-7 9 3 13-2s6-6 9-3" fill="none" stroke="${f.color}" stroke-width="${w}" stroke-linecap="round" ${f.tool === 'highlighter' ? 'stroke-opacity="0.6"' : ''}/></svg>`;
+      b.setAttribute('aria-label', `Favorite ${i + 1}: ${f.tool} ${f.color}. Long-press to replace with the current pen.`);
+      b.title = 'Tap to use · long-press to save the current pen here';
+      const store = () => {
+        const tool = settings.tool === 'highlighter' ? 'highlighter' : 'pen';
+        const cur = tool === 'pen' ? settings.pen : settings.highlighter;
+        settings.favorites[i] = { tool, color: cur.color, width: cur.width };
+        saveSettings();
+        toast(`Saved to favorite ${i + 1}`);
+        this.optsKey = '';
+        this.renderStrip();
+      };
+      let timer = 0, long = false;
+      b.onpointerdown = () => { long = false; timer = window.setTimeout(() => { long = true; store(); }, 550); };
+      b.onpointerup = b.onpointerleave = () => clearTimeout(timer);
+      b.oncontextmenu = (e) => { e.preventDefault(); clearTimeout(timer); if (!long) store(); long = true; };
+      b.onclick = () => {
+        if (long) return;
+        const target = f.tool === 'pen' ? settings.pen : settings.highlighter;
+        target.color = f.color;
+        target.width = f.width;
+        saveSettings();
+        if (settings.tool !== f.tool && !(f.tool === 'pen' && settings.tool === 'shape')) this.ed.setTool(f.tool);
+        else this.update();
+      };
+      s.append(b);
+    });
   }
 
   private chip(icon: string, label: string, on: boolean, fn: () => void) {
@@ -531,9 +576,18 @@ export class Toolbar {
 
   // ---------------------------------------------------------------- pages panel
 
+  private ppTab: 'pages' | 'outline' = 'pages';
+
   private buildPagesPanel() {
-    const head = h('div', 'pp-head', '<b>All pages</b>');
-    head.append(this.btn(icons.close, 'Close pages', () => this.togglePages(false), 'icon-btn small'));
+    const head = h('div', 'pp-head');
+    const tabs = h('div', 'segmented pp-tabs');
+    for (const [v, l] of [['pages', 'Pages'], ['outline', 'Outline']] as const) {
+      const b = h('button', this.ppTab === v ? 'on' : '', l);
+      b.dataset.tab = v;
+      b.onclick = () => { this.ppTab = v; tabs.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b)); this.renderThumbs(); };
+      tabs.append(b);
+    }
+    head.append(tabs, this.btn(icons.close, 'Close pages', () => this.togglePages(false), 'icon-btn small'));
     const list = h('div', 'pp-list');
     const add = h('button', 'pp-add', `${icons.plus}<span>Add page</span>`);
     add.onclick = () => {
@@ -560,9 +614,35 @@ export class Toolbar {
     this.thumbTimer = window.setTimeout(() => this.renderThumbs(), layout ? 0 : 700);
   }
 
+  /** The PDF table of contents, as jump links. */
+  private renderOutline(list: Element) {
+    const ed = this.ed;
+    const entries = (ed.meta.outline ?? []).filter((e) => ed.pageView(e.page));
+    if (!entries.length) {
+      list.append(h('p', 'pp-empty', 'No outline yet. Import a PDF that has a table of contents and its chapters show up here.'));
+      return;
+    }
+    for (const e of entries) {
+      const n = ed.pages.indexOf(ed.pageView(e.page)!) + 1;
+      const b = h('button', 'ol-item', `<span class="ol-title">${esc(e.title)}</span><span class="ol-page">${n}</span>`);
+      b.style.paddingLeft = `${10 + Math.min(e.level, 4) * 14}px`;
+      b.onclick = () => { const pv = ed.pageView(e.page); if (pv) ed.scrollToPage(pv); if (window.innerWidth < 760) this.togglePages(false); };
+      list.append(b);
+    }
+  }
+
   private renderThumbs() {
     const ed = this.ed;
     const list = this.pagesPanel.querySelector('.pp-list')!;
+    const outlineTab = this.pagesPanel.querySelector<HTMLElement>('[data-tab="outline"]');
+    if (outlineTab) outlineTab.textContent = ed.meta.outline?.length ? `Outline (${ed.meta.outline.length})` : 'Outline';
+    this.pagesPanel.classList.toggle('show-outline', this.ppTab === 'outline');
+    if (this.ppTab === 'outline') {
+      for (const c of list.querySelectorAll('canvas')) c.width = c.height = 0;
+      list.innerHTML = '';
+      this.renderOutline(list);
+      return;
+    }
     const st = ed.doc.state;
     const cur = ed.currentPage()?.page.id;
     for (const c of list.querySelectorAll('canvas')) c.width = c.height = 0;
@@ -614,6 +694,7 @@ export class Toolbar {
     menu([
       { label: 'Photo or image', icon: icons.image, action: async () => { const f = await pickFile('image/*'); if (f) ed.insertImage(f); } },
       { label: 'Take photo', icon: icons.camera, action: async () => { const f = await pickFile('image/*', true); if (f) ed.insertImage(f); } },
+      { label: 'Sticky note', icon: icons.notes, action: () => ed.addSticky() },
       { label: 'PDF pages', icon: icons.upload, action: async () => { const f = await pickFile('application/pdf,.pdf'); if (f) this.insertPdf(f); } },
       null,
       { label: 'Blank page after this one', icon: icons.page, action: () => {
@@ -623,6 +704,10 @@ export class Toolbar {
         if (next) ed.scrollToPage(next);
       } },
       ...(hasClipboard() ? [{ label: 'Paste', icon: icons.copy, action: () => ed.pasteHere() }] : []),
+      { label: 'Paste text (match formatting)', icon: icons.textT, action: async () => {
+        try { ed.pasteText(await navigator.clipboard.readText()); }
+        catch { toast('Couldn’t read the clipboard here — press ⌘V / Ctrl+V on the page instead'); }
+      } },
     ], anchor, 'Insert');
   }
 
@@ -639,16 +724,31 @@ export class Toolbar {
         if (await confirmBox('Delete this page?', 'You can undo this.')) ed.doc.commit([{ t: 'removePage', id: cur.page.id }]);
       } },
       { label: 'Fit to width', icon: icons.pages, action: () => ed.fitWidth() },
+      ...(inClaude ? [] : [
+        { label: 'Copy link to this note', icon: icons.share, action: () => this.copyLink(false) },
+        { label: 'Copy link to this page', icon: icons.page, action: () => this.copyLink(true) },
+      ]),
       { label: 'Customize toolbar…', icon: icons.menu, action: () => this.customizeSheet() },
       null,
       { label: 'Settings', icon: icons.gear, action: () => openSettings(() => this.update()) },
     ], anchor);
   }
 
+  /** Deep link that opens this note (optionally at this page) — e.g. from Notion, Reminders or a calendar. */
+  private copyLink(page: boolean) {
+    const ed = this.ed;
+    const n = ed.pages.indexOf(ed.currentPage()) + 1;
+    const url = `${location.origin}${location.pathname}#/note/${ed.meta.id}${page ? `/p${n}` : ''}`;
+    navigator.clipboard?.writeText(url)
+      .then(() => toast(page ? `Link to page ${n} copied` : 'Link to note copied'))
+      .catch(() => toast(url, 8000));
+  }
+
   async insertPdf(file: File) {
     const b = busy('Importing PDF…');
     try {
-      const pages = await pdfToPages(file, (d, t) => b.set(`Importing page ${Math.min(d + 1, t)} of ${t}…`));
+      const { pages, outline } = await pdfToPages(file, (d, t) => b.set(`Importing page ${Math.min(d + 1, t)} of ${t}…`));
+      if (outline.length) { this.ed.meta.outline = [...(this.ed.meta.outline ?? []), ...outline]; this.ed.saveMeta(); }
       const after = this.ed.currentPage().page.id;
       const ops: Op[] = [];
       let prev = after;

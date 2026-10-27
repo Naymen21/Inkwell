@@ -3,7 +3,7 @@
 import type { Rect } from '../util/geom';
 import { intersects } from '../util/geom';
 import { objBounds } from '../model/doc';
-import type { FontKind, Page, PageObject, StrokeObj, TextObj } from '../model/types';
+import type { FontKind, Page, PageObject, StickyObj, StrokeObj, TextObj } from '../model/types';
 import { buildCenterline, buildPen, fromFlat, type InkPoint } from '../ink/stroke';
 import { media } from './media';
 
@@ -124,6 +124,8 @@ export function drawObject(ctx: CanvasRenderingContext2D, o: PageObject, opts: D
     else { ctx.fillStyle = 'rgba(128,128,128,0.15)'; ctx.fillRect(o.x, o.y, o.w, o.h); }
   } else if (o.kind === 'text' && opts.text) {
     drawText(ctx, o);
+  } else if (o.kind === 'sticky' && opts.text) {
+    drawSticky(ctx, o);
   }
   ctx.globalAlpha = 1;
 }
@@ -169,6 +171,29 @@ export function drawText(ctx: CanvasRenderingContext2D, o: TextObj) {
     ctx.fillText(line, o.x, y);
     y += lh;
   }
+}
+
+export function drawSticky(ctx: CanvasRenderingContext2D, o: StickyObj) {
+  ctx.save();
+  ctx.fillStyle = o.color;
+  ctx.shadowColor = 'rgba(0,0,0,0.18)';
+  ctx.shadowBlur = 6;
+  ctx.shadowOffsetY = 2;
+  if (!o.open) {
+    ctx.beginPath();
+    ctx.roundRect(o.x, o.y, 30, 30, 6);
+    ctx.fill();
+    ctx.shadowColor = 'transparent';
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    for (let i = 0; i < 3; i++) ctx.fillRect(o.x + 8, o.y + 9 + i * 5, i === 2 ? 9 : 14, 1.6);
+  } else {
+    ctx.beginPath();
+    ctx.roundRect(o.x, o.y, o.w, o.h, 8);
+    ctx.fill();
+    ctx.shadowColor = 'transparent';
+    drawText(ctx, { kind: 'text', id: o.id, page: o.page, createdAt: o.createdAt, x: o.x + 12, y: o.y + 30, w: o.w - 24, h: o.h - 40, text: o.text, size: 13, color: '#2b2b2b', bold: false, font: 'sans' });
+  }
+  ctx.restore();
 }
 
 /** Render a whole page into a fresh canvas (thumbnails, export). */

@@ -31,17 +31,21 @@ export class InkTool implements Tool {
     createdAt: number; anchor: Pt; shape: Shape | null; timer: number;
   } | null = null;
 
-  constructor(private ed: Editor, private kind: 'pen' | 'highlighter' | 'shape') {}
+  /** What the current stroke is: the pen tool can lay down a highlight (Shift, pen barrel button, or "Highlight next"). */
+  private mode: 'pen' | 'highlighter' | 'shape';
+
+  constructor(private ed: Editor, private kind: 'pen' | 'highlighter' | 'shape') { this.mode = kind; }
 
   private style() {
-    return this.kind === 'highlighter'
+    return this.mode === 'highlighter'
       ? { width: settings.highlighter.width, pressure: false }
-      : { width: settings.pen.width, pressure: settings.pen.pressure && this.kind === 'pen' };
+      : { width: settings.pen.width, pressure: settings.pen.pressure && this.mode === 'pen' };
   }
 
   down(s: Sample) {
     const pv = this.ed.pageAt(s.x, s.y, true);
     if (!pv) return;
+    this.mode = this.kind === 'pen' && this.ed.takeHighlight() ? 'highlighter' : this.kind;
     const l = local(pv, s);
     const filter = new InkFilter({ ...this.style(), zoom: this.ed.cam.z });
     filter.push(l);
@@ -76,7 +80,7 @@ export class InkTool implements Tool {
   /** Hold still at the end of a pen stroke to snap it into a perfect shape. */
   private arm() {
     const L = this.live;
-    if (!L || this.kind !== 'pen' || !settings.holdToSnap) return;
+    if (!L || this.mode !== 'pen' || !settings.holdToSnap) return;
     clearTimeout(L.timer);
     L.timer = window.setTimeout(() => {
       if (this.live !== L) return;
@@ -91,15 +95,15 @@ export class InkTool implements Tool {
     if (!L) return;
     clearTimeout(L.timer);
     this.live = null;
-    const shape = L.shape ?? (this.kind === 'shape' ? recognizeShape(L.raw) : null);
+    const shape = L.shape ?? (this.mode === 'shape' ? recognizeShape(L.raw) : null);
     let pts: InkPoint[];
     if (shape) pts = shapeInk(shape, avgWidth(L.filter.pts, this.style().width));
     else {
       pts = L.filter.finish(L.raw.at(-1));
-      pts = this.kind === 'highlighter' && settings.straightLines ? straighten(pts) ?? simplify(pts) : simplify(pts);
+      pts = this.mode === 'highlighter' && settings.straightLines ? straighten(pts) ?? simplify(pts) : simplify(pts);
     }
     if (!pts.length) { this.ed.requestFrame(); return; }
-    const hl = this.kind === 'highlighter';
+    const hl = this.mode === 'highlighter';
     const flat = toFlat(pts);
     const obj: StrokeObj = {
       kind: 'stroke', id: uid(), page: L.pv.page.id, createdAt: L.createdAt,
@@ -108,6 +112,7 @@ export class InkTool implements Tool {
       opacity: hl ? 0.5 : 1, pts: flat, bbox: strokeBBox(flat),
     };
     this.ed.commitContent([{ t: 'add', obj }], L.pv.page.id);
+    this.mode = this.kind;
   }
 
   cancel() {
@@ -121,7 +126,7 @@ export class InkTool implements Tool {
     if (!L) return;
     this.ed.pageTransform(ctx, L.pv);
     const pts = L.shape ? shapeInk(L.shape, avgWidth(L.filter.pts, this.style().width)) : [...L.filter.view(), ...(L.tip ? [L.tip] : []), ...L.pred];
-    const hl = this.kind === 'highlighter';
+    const hl = this.mode === 'highlighter';
     ctx.globalAlpha = hl ? 0.5 : 1;
     if (hl && !isDark(L.pv.page.paper)) ctx.globalCompositeOperation = 'multiply';
     paintInk(ctx, pts, hl ? settings.highlighter.color : settings.pen.color, hl);
@@ -215,6 +220,8 @@ export class EraserTool implements Tool {
 export interface Selection { ids: string[]; bounds: Rect }
 
 let clipboard: PageObject[] | null = null;
+/** Placed on the system clipboard by Inkwell's copy, so a paste knows to use the copied ink. */
+export const OBJECTS_MARKER = '\u2063inkwell-objects\u2063';
 export const hasClipboard = () => !!clipboard?.length;
 
 /** Rebuild an object through a coordinate map; k scales widths/sizes. */
@@ -297,7 +304,7 @@ export class LassoTool implements Tool {
     const b = this.sel!.bounds;
     for (const id of this.sel!.ids) {
       const o = this.ed.doc.state.objects.get(id);
-      if (o?.kind !== 'text') continue;
+      if (o?.kind !== 'text' && o?.kind !== 'sticky') continue;
       const pv = this.ed.pageView(o.page)!;
       this.ed.text.preview(id, this.dx, this.dy, this.s, b.x - pv.x - o.x, b.y - pv.y - o.y);
     }
@@ -447,6 +454,7 @@ export class LassoTool implements Tool {
       const pv = this.ed.pageView(o.page)!;
       return mapObj(o, (x) => x + pv.x, (y) => y + pv.y, 1); // store in world coords
     });
+    navigator.clipboard?.writeText(OBJECTS_MARKER).catch(() => {});
   }
 
   duplicate() {
@@ -492,7 +500,7 @@ export class LassoTool implements Tool {
       this.mode === 'scale' ? { x: b.x + (x - b.x) * this.s, y: b.y + (y - b.y) * this.s } : { x: x + this.dx, y: y + this.dy };
     if (dragging) {
       for (const o of this.objects()) {
-        if (o.kind === 'text') continue;
+        if (o.kind === 'text' || o.kind === 'sticky') continue;
         const pv = ed.pageView(o.page)!;
         ed.pageTransform(ctx, pv, false);
         const ax = b.x - pv.x, ay = b.y - pv.y;

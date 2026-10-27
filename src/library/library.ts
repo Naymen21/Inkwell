@@ -126,9 +126,25 @@ export async function renderLibrary(mount: HTMLElement, open: (id: string) => vo
   const subs = (d: string) => folders.filter((f) => f.parent === d).sort((a, b) => a.created - b.created);
   const live = () => notes.filter((n) => !n.trashed);
   const colorOf = (f: Folder) => f.color ?? FOLDER_COLORS[tops().concat(folders).indexOf(f) % FOLDER_COLORS.length];
+  /** A folder and everything nested under it, at any depth. */
+  const descendants = (fid: string): Set<string> => {
+    const out = new Set([fid]);
+    for (let grew = true; grew;) {
+      grew = false;
+      for (const f of folders) if (f.parent && out.has(f.parent) && !out.has(f.id)) { out.add(f.id); grew = true; }
+    }
+    return out;
+  };
   const countIn = (fid: string) => {
-    const ids = new Set([fid, ...subs(fid).map((s) => s.id)]);
+    const ids = descendants(fid);
     return live().filter((n) => n.folder && ids.has(n.folder)).length;
+  };
+  /** Folders as a flat, depth-first list with their depth (for menus). */
+  const tree = (): { f: Folder; depth: number }[] => {
+    const out: { f: Folder; depth: number }[] = [];
+    const walk = (list: Folder[], depth: number) => { for (const f of list) { out.push({ f, depth }); walk(subs(f.id), depth + 1); } };
+    walk(tops(), 0);
+    return out;
   };
 
   function drawSide() {
@@ -158,9 +174,11 @@ export async function renderLibrary(mount: HTMLElement, open: (id: string) => vo
     head.append(add);
     nav.append(head);
 
-    for (const d of tops()) {
+    // Folders nest to any depth; each level indents a little more.
+    const drawFolder = (d: Folder, depth: number) => {
       const dot = `<span class="f-dot" style="--f:${colorOf(d)}"></span>`;
-      const row = item(d.id, dot, d.name, countIn(d.id), 'folder-item');
+      const row = item(d.id, dot, d.name, countIn(d.id), depth ? 'folder-item sub-item' : 'folder-item');
+      row.style.paddingLeft = `${10 + Math.min(depth, 6) * 16}px`;
       const children = subs(d.id);
       const more = h('span', 'ni-more', icons.more);
       more.onclick = (e) => { e.stopPropagation(); folderMenu(d, more); };
@@ -176,16 +194,9 @@ export async function renderLibrary(mount: HTMLElement, open: (id: string) => vo
         row.append(caret);
       }
       nav.append(row);
-      if (!state.collapsed.has(d.id)) {
-        for (const s of children) {
-          const si = item(s.id, `<span class="f-dot" style="--f:${colorOf(s)}"></span>`, s.name, live().filter((n) => n.folder === s.id).length, 'sub-item');
-          const sm = h('span', 'ni-more', icons.more);
-          sm.onclick = (e) => { e.stopPropagation(); folderMenu(s, sm); };
-          si.append(sm);
-          nav.append(si);
-        }
-      }
-    }
+      if (!state.collapsed.has(d.id)) for (const c of children) drawFolder(c, depth + 1);
+    };
+    for (const d of tops()) drawFolder(d, 0);
     if (!tops().length) nav.append(h('p', 'nav-empty', 'Tap + to make a folder, e.g. “AP Lit”. Folders can hold subfolders.'));
     nav.append(h('div', 'nav-spacer'));
     nav.append(item('trash', icons.trash, 'Recently deleted', notes.filter((n) => n.trashed).length));
@@ -193,13 +204,16 @@ export async function renderLibrary(mount: HTMLElement, open: (id: string) => vo
 
   function folderMenu(f: Folder, anchor: HTMLElement) {
     menu([
-      ...(!f.parent ? [{ label: 'New subfolder', icon: icons.plus, action: async () => {
-        const name = await promptText(`New subfolder in ${f.name}`, '', 'Create');
+      { label: 'New folder inside', icon: icons.plus, action: async () => {
+        const name = await promptText(`New folder in ${f.name}`, '', 'Create');
         if (!name) return;
-        await db.putFolder({ id: uid(), name, parent: f.id, created: Date.now(), color: FOLDER_COLORS[(subs(f.id).length + 2) % FOLDER_COLORS.length] });
+        try {
+          await db.putFolder({ id: uid(), name, parent: f.id, created: Date.now(), color: FOLDER_COLORS[(subs(f.id).length + 2) % FOLDER_COLORS.length] });
+        } catch (e) { storageFailed(e); return; }
         state.collapsed.delete(f.id);
         reload();
-      } }] : []),
+      } },
+      { label: 'Move folder to…', icon: icons.folder, action: () => moveFolderMenu(f, anchor) },
       { label: 'Rename', action: async () => {
         const name = await promptText('Rename', f.name);
         if (name) { await db.putFolder({ ...f, name }); reload(); }
@@ -211,9 +225,11 @@ export async function renderLibrary(mount: HTMLElement, open: (id: string) => vo
         })), anchor, 'Folder color');
       } },
       { label: 'Delete', danger: true, icon: icons.trash, action: async () => {
-        const ids = new Set([f.id, ...(f.parent ? [] : subs(f.id).map((s) => s.id))]);
+        const ids = descendants(f.id);
         const n = notes.filter((x) => x.folder && ids.has(x.folder)).length;
-        if (!(await confirmBox(`Delete “${f.name}”?`, n ? `${n} note${n > 1 ? 's' : ''} inside will move to Unfiled.` : 'It is empty.'))) return;
+        const inner = ids.size - 1;
+        const what = [inner ? `${inner} folder${inner > 1 ? 's' : ''} inside will be deleted too.` : '', n ? `${n} note${n > 1 ? 's' : ''} will move to Unfiled.` : ''].filter(Boolean).join(' ') || 'It is empty.';
+        if (!(await confirmBox(`Delete “${f.name}”?`, what))) return;
         for (const note of notes) if (note.folder && ids.has(note.folder)) await db.putNote({ ...note, folder: null });
         for (const id of ids) await db.deleteFolder(id);
         reload();
@@ -242,7 +258,7 @@ export async function renderLibrary(mount: HTMLElement, open: (id: string) => vo
     let list = f === 'trash' ? notes.filter((n) => n.trashed) : live();
     if (f === 'unfiled') list = list.filter((n) => !n.folder || !folders.some((x) => x.id === n.folder));
     else if (f !== 'all' && f !== 'trash') {
-      const ids = new Set([f, ...subs(f).map((s) => s.id)]);
+      const ids = descendants(f);
       list = list.filter((n) => n.folder && ids.has(n.folder));
     }
     const qq = state.query.trim().toLowerCase();
@@ -349,12 +365,22 @@ export async function renderLibrary(mount: HTMLElement, open: (id: string) => vo
   function moveMenu(n: NoteMeta, anchor: HTMLElement) {
     const dot = (f: Folder) => `<span class="f-dot" style="--f:${colorOf(f)}"></span>`;
     const items = [{ label: 'Unfiled', icon: icons.inbox, checked: !n.folder, action: () => move(null) }];
-    for (const d of tops()) {
-      items.push({ label: d.name, icon: dot(d), checked: n.folder === d.id, action: () => move(d.id) });
-      for (const s of subs(d.id)) items.push({ label: `    ${s.name}`, icon: dot(s), checked: n.folder === s.id, action: () => move(s.id) });
-    }
+    for (const { f, depth } of tree()) items.push({ label: `${'    '.repeat(depth)}${f.name}`, icon: dot(f), checked: n.folder === f.id, action: () => move(f.id) });
     async function move(folder: string | null) { await db.putNote({ ...n, folder }); reload(); }
     menu(items, anchor, 'Move to');
+  }
+
+  /** Re-parent a folder (not into itself or its own subfolders). */
+  function moveFolderMenu(f: Folder, anchor: HTMLElement) {
+    const banned = descendants(f.id);
+    const dot = (x: Folder) => `<span class="f-dot" style="--f:${colorOf(x)}"></span>`;
+    const to = async (parent: string | null) => { await db.putFolder({ ...f, parent }); if (parent) state.collapsed.delete(parent); reload(); };
+    const items = [{ label: 'Top level', icon: icons.folder, checked: !f.parent, action: () => to(null) }];
+    for (const { f: x, depth } of tree()) {
+      if (banned.has(x.id)) continue;
+      items.push({ label: `${'    '.repeat(depth)}${x.name}`, icon: dot(x), checked: f.parent === x.id, action: () => to(x.id) });
+    }
+    menu(items, anchor, `Move “${f.name}” into`);
   }
 
   async function importFiles(files: File[], folder: string | null) {
@@ -363,8 +389,8 @@ export async function renderLibrary(mount: HTMLElement, open: (id: string) => vo
       const b = busy(`Importing ${file.name}…`);
       try {
         if (/\.pdf$/i.test(file.name) || file.type === 'application/pdf') {
-          const pages = await pdfToPages(file, (d, t) => b.set(`Importing ${file.name} — page ${Math.min(d + 1, t)} of ${t}`));
-          last = (await createNote(folder, file.name.replace(/\.pdf$/i, ''), pages)).id;
+          const { pages, outline } = await pdfToPages(file, (d, t) => b.set(`Importing ${file.name} — page ${Math.min(d + 1, t)} of ${t}`));
+          last = (await createNote(folder, file.name.replace(/\.pdf$/i, ''), pages, outline)).id;
         } else if (/\.inkwell(\.json)?$|\.json$/i.test(file.name)) {
           last = (await importNoteFile(file, folder)).id;
         }

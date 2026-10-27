@@ -892,3 +892,37 @@ body.dragging-note, body.dragging-note * { cursor: grabbing !important; -webkit-
 .inkly-head .icon-btn { flex: none; }
 
 .inkly-status { font-size: 13px; color: var(--muted); margin: 0 0 2px !important; }
+
+/* Favorite pens */
+.fav { width: 40px; height: 32px; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; flex: none; background: rgba(60, 60, 67, 0.06); }
+.fav:hover { background: rgba(60, 60, 67, 0.1); }
+.fav.on { box-shadow: inset 0 0 0 1.5px var(--accent); background: var(--accent-soft); }
+
+/* Pages panel tabs + PDF outline */
+.pp-tabs { flex: 1; margin-right: 6px; }
+.pp-tabs button { flex: 1; font-size: 12.5px; }
+.pages-panel.show-outline .pp-list { gap: 2px; padding: 4px 8px 12px; }
+.ol-item { display: flex; align-items: baseline; gap: 8px; width: 100%; text-align: left; padding: 8px 10px; border-radius: 9px; font-size: 13.5px; }
+.ol-item:hover { background: var(--hover); }
+.ol-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ol-page { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.pp-empty { color: var(--muted); font-size: 13px; padding: 12px 6px; line-height: 1.5; }
+
+/* Sticky notes */
+.sticky { position: absolute; pointer-events: auto; z-index: 2; touch-action: none; color: #3a3a3c; }
+.sticky:not(.open) {
+  width: 30px; height: 30px; border-radius: 7px; display: flex; align-items: center; justify-content: center; cursor: grab;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2), inset 0 -2px 0 rgba(0, 0, 0, 0.06);
+}
+.sticky:not(.open):hover { transform: scale(1.06); }
+.sticky.open { border-radius: 10px; display: flex; flex-direction: column; box-shadow: 0 6px 22px rgba(0, 0, 0, 0.18); overflow: hidden; }
+.sticky-bar { display: flex; align-items: center; gap: 2px; height: 28px; padding: 0 4px 0 10px; cursor: grab; background: rgba(0, 0, 0, 0.05); }
+.sticky-grip { flex: 1; height: 4px; max-width: 34px; border-radius: 2px; background: rgba(0, 0, 0, 0.18); }
+.sticky-bar .sticky-btn:first-of-type { margin-left: auto; }
+.sticky-btn { width: 26px; height: 24px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; color: rgba(0, 0, 0, 0.55); }
+.sticky-btn:hover { background: rgba(0, 0, 0, 0.08); }
+.sticky-text { flex: 1; border: 0; outline: none; resize: none; background: transparent; padding: 8px 12px 10px; font: 13.5px/1.45 var(--font); color: #2b2b2b; -webkit-user-select: text; user-select: text; }
+
+/* The options row never widens the dock: it matches the tool row and scrolls sideways. */
+.dock-opts { width: 0; min-width: 100%; box-sizing: border-box; overflow-x: auto; overscroll-behavior-x: contain; -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent); }
+.dock-opts > :last-child { margin-right: 18px; }

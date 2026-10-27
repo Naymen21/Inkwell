@@ -1,7 +1,7 @@
 // Import/export: PDF in (pages become backgrounds you annotate on top of),
 // PDF out (flattened), and a portable .inkwell file for moving notes between
 // devices.
-import type { Clip, NoteMeta, Page, Snapshot } from '../model/types';
+import type { Clip, NoteMeta, OutlineEntry, Page, Snapshot } from '../model/types';
 import { DocState, materialize } from '../model/doc';
 import { db } from '../persist/db';
 import { media } from '../render/media';
@@ -19,11 +19,12 @@ async function loadPdfjs() {
 }
 
 /** Rasterize each PDF page into the media store and return pages that use them as backgrounds. */
-export async function pdfToPages(file: Blob, progress: (done: number, total: number) => void): Promise<Page[]> {
+export async function pdfToPages(file: Blob, progress: (done: number, total: number) => void): Promise<{ pages: Page[]; outline: OutlineEntry[] }> {
   const pdfjs = await loadPdfjs();
   const task = pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) });
   const pdf = await task.promise;
   const pages: Page[] = [];
+  const outline: OutlineEntry[] = [];
   try {
     for (let i = 1; i <= pdf.numPages; i++) {
       progress(i - 1, pdf.numPages);
@@ -42,11 +43,34 @@ export async function pdfToPages(file: Blob, progress: (done: number, total: num
       pages.push({ id: uid(), w: Math.round(base.width), h: Math.round(base.height), template: 'blank', paper: '#ffffff', bg: hash });
       page.cleanup();
     }
+    // The PDF's own table of contents becomes jump links in the pages panel.
+    try {
+      type Item = { title?: string; dest?: unknown; items?: Item[] };
+      const doc = pdf as unknown as {
+        getOutline(): Promise<Item[] | null>;
+        getDestination(id: string): Promise<unknown[] | null>;
+        getPageIndex(ref: unknown): Promise<number>;
+      };
+      const walk = async (list: Item[], level: number) => {
+        for (const it of list) {
+          if (outline.length >= 500) return;
+          let dest = it.dest;
+          if (typeof dest === 'string') dest = await doc.getDestination(dest).catch(() => null);
+          let idx = -1;
+          if (Array.isArray(dest) && dest[0] != null) {
+            idx = typeof dest[0] === 'number' ? dest[0] : await doc.getPageIndex(dest[0]).catch(() => -1);
+          }
+          if (idx >= 0 && pages[idx]) outline.push({ title: String(it.title ?? '').trim() || 'Untitled section', page: pages[idx].id, level });
+          if (it.items?.length) await walk(it.items, level + 1);
+        }
+      };
+      await walk((await doc.getOutline()) ?? [], 0);
+    } catch { /* PDF has no usable outline */ }
   } finally {
     progress(pdf.numPages, pdf.numPages);
     task.destroy();
   }
-  return pages;
+  return { pages, outline };
 }
 
 async function preloadMedia(state: DocState) {

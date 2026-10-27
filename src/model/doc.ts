@@ -6,8 +6,12 @@ import { union } from '../util/geom';
 import { uid } from '../util/ids';
 import type { LoggedOp, Op, Page, PageObject, Snapshot } from './types';
 
+export const STICKY_ICON = 30;
+
 export function objBounds(o: PageObject): Rect {
-  return o.kind === 'stroke' ? o.bbox : { x: o.x, y: o.y, w: o.w, h: o.h };
+  if (o.kind === 'stroke') return o.bbox;
+  if (o.kind === 'sticky' && !o.open) return { x: o.x, y: o.y, w: STICKY_ICON, h: STICKY_ICON };
+  return { x: o.x, y: o.y, w: o.w, h: o.h };
 }
 
 export function strokeBBox(pts: number[]): Rect {
@@ -34,7 +38,7 @@ export class Change {
     this.dirty.set(page, union(this.dirty.get(page) ?? null, r));
   }
   markObj(o: PageObject) {
-    if (o.kind === 'text') this.texts.add(o.id);
+    if (o.kind === 'text' || o.kind === 'sticky') this.texts.add(o.id);
     else this.mark(o.page, objBounds(o));
   }
   get empty() {
@@ -123,7 +127,7 @@ export function applyOp(s: DocState, op: Op, ch: Change): Op[] {
       const objs = s.objectsOn(page.id);
       for (const o of objs) {
         s.objects.delete(o.id);
-        if (o.kind === 'text') ch.texts.add(o.id);
+        if (o.kind === 'text' || o.kind === 'sticky') ch.texts.add(o.id);
       }
       s.pages.splice(i, 1);
       s.order.delete(page.id);
