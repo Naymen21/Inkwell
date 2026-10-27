@@ -43,7 +43,7 @@ export class InkTool implements Tool {
     const pv = this.ed.pageAt(s.x, s.y, true);
     if (!pv) return;
     const l = local(pv, s);
-    const filter = new InkFilter(this.style());
+    const filter = new InkFilter({ ...this.style(), zoom: this.ed.cam.z });
     filter.push(l);
     this.live = { pv, filter, raw: [l], pred: [], tip: null, createdAt: this.ed.timeline(), anchor: { x: l.x, y: l.y }, shape: null, timer: 0 };
     this.arm();
@@ -120,7 +120,7 @@ export class InkTool implements Tool {
     const L = this.live;
     if (!L) return;
     this.ed.pageTransform(ctx, L.pv);
-    const pts = L.shape ? shapeInk(L.shape, avgWidth(L.filter.pts, this.style().width)) : [...L.filter.pts, ...(L.tip ? [L.tip] : []), ...L.pred];
+    const pts = L.shape ? shapeInk(L.shape, avgWidth(L.filter.pts, this.style().width)) : [...L.filter.view(), ...(L.tip ? [L.tip] : []), ...L.pred];
     const hl = this.kind === 'highlighter';
     ctx.globalAlpha = hl ? 0.5 : 1;
     if (hl && !isDark(L.pv.page.paper)) ctx.globalCompositeOperation = 'multiply';

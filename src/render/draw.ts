@@ -4,18 +4,18 @@ import type { Rect } from '../util/geom';
 import { intersects } from '../util/geom';
 import { objBounds } from '../model/doc';
 import type { FontKind, Page, PageObject, StrokeObj, TextObj } from '../model/types';
-import { buildCenterline, buildPath, fromFlat, type InkPoint } from '../ink/stroke';
+import { buildCenterline, buildPen, fromFlat, type InkPoint } from '../ink/stroke';
 import { media } from './media';
 
-const pathCache = new WeakMap<StrokeObj, Path2D>();
+const pathCache = new WeakMap<StrokeObj, InkPaths>();
 
 /**
  * Paint ink. Highlighter is constant width, so it is one native round-capped
  * stroke: seamless even when translucent. Pen ink is a filled variable-width outline.
  */
-export function paintInk(ctx: CanvasRenderingContext2D, pts: InkPoint[], color: string, highlighter: boolean, path?: Path2D) {
+export function paintInk(ctx: CanvasRenderingContext2D, pts: InkPoint[], color: string, highlighter: boolean, path?: InkPaths) {
   if (highlighter) {
-    const p = path ?? new Path2D();
+    const p = path?.edge ?? new Path2D();
     if (!path) buildCenterline(p, pts);
     ctx.strokeStyle = color;
     ctx.lineWidth = pts[0]?.w ?? 1;
@@ -24,18 +24,25 @@ export function paintInk(ctx: CanvasRenderingContext2D, pts: InkPoint[], color: 
     ctx.stroke(p);
     return;
   }
-  const p = path ?? new Path2D();
-  if (!path) buildPath(p, pts);
+  let paths = path;
+  if (!paths) { paths = { edge: new Path2D(), core: new Path2D() }; buildPen(paths.edge, paths.core!, pts); }
   ctx.fillStyle = color;
-  ctx.fill(p);
+  ctx.fill(paths.edge);
+  if (paths.core) ctx.fill(paths.core);
 }
 
-export function strokePath(o: StrokeObj): Path2D {
+export interface InkPaths { edge: Path2D; core?: Path2D }
+
+export function strokePath(o: StrokeObj): InkPaths {
   let p = pathCache.get(o);
   if (!p) {
-    p = new Path2D();
-    if (o.tool === 'highlighter') buildCenterline(p, fromFlat(o.pts));
-    else buildPath(p, fromFlat(o.pts));
+    if (o.tool === 'highlighter') {
+      p = { edge: new Path2D() };
+      buildCenterline(p.edge, fromFlat(o.pts));
+    } else {
+      p = { edge: new Path2D(), core: new Path2D() };
+      buildPen(p.edge, p.core!, fromFlat(o.pts));
+    }
     pathCache.set(o, p);
   }
   return p;
@@ -58,7 +65,7 @@ export function drawPaper(ctx: CanvasRenderingContext2D, page: Page, r: Rect, sc
   }
   if (page.template === 'blank') return;
   const dark = isDark(page.paper);
-  const line = dark ? 'rgba(255,255,255,0.16)' : 'rgba(70,120,190,0.28)';
+  const line = dark ? 'rgba(255,255,255,0.14)' : 'rgba(95,110,140,0.2)';
   const hair = Math.max(0.5 / scale, 0.45);
   ctx.save();
   ctx.beginPath();
@@ -77,7 +84,7 @@ export function drawPaper(ctx: CanvasRenderingContext2D, page: Page, r: Rect, sc
     ctx.strokeStyle = dark ? 'rgba(255,120,120,0.3)' : 'rgba(220,80,80,0.35)';
     ctx.beginPath(); ctx.moveTo(64, r.y); ctx.lineTo(64, r.y + r.h); ctx.stroke();
   } else if (page.template === 'grid') {
-    const step = 18;
+    const step = 20;
     ctx.strokeStyle = line;
     ctx.lineWidth = hair;
     ctx.beginPath();
@@ -85,8 +92,8 @@ export function drawPaper(ctx: CanvasRenderingContext2D, page: Page, r: Rect, sc
     for (let y = Math.ceil(r.y / step) * step; y <= r.y + r.h; y += step) { ctx.moveTo(r.x, y); ctx.lineTo(r.x + r.w, y); }
     ctx.stroke();
   } else if (page.template === 'dotted') {
-    const step = 18, d = 0.9;
-    ctx.fillStyle = dark ? 'rgba(255,255,255,0.3)' : 'rgba(60,80,110,0.4)';
+    const step = 20, d = 1.1;
+    ctx.fillStyle = dark ? 'rgba(255,255,255,0.28)' : 'rgba(80,90,110,0.34)';
     for (let x = Math.ceil(r.x / step) * step; x <= r.x + r.w; x += step)
       for (let y = Math.ceil(r.y / step) * step; y <= r.y + r.h; y += step) ctx.fillRect(x - d / 2, y - d / 2, d, d);
   }

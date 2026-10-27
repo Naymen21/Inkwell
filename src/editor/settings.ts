@@ -37,7 +37,7 @@ const defaults: Settings = {
   straightLines: true,
   autoDeselectEraser: false,
   lassoMode: 'free',
-  paper: { template: 'lined', color: '#ffffff', size: 'letter' },
+  paper: { template: 'grid', color: '#ffffff', size: 'letter' },
 };
 
 function load(): Settings {

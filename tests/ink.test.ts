@@ -140,3 +140,33 @@ describe('stroke outline winding', () => {
     }
   });
 });
+
+describe('ink smoothing', () => {
+  it('irons out pixel-quantized mouse input on slow strokes', () => {
+    // A slow, shallow diagonal as a mouse reports it: whole-pixel staircase steps.
+    const f = new InkFilter({ width: 2, pressure: true, zoom: 1 });
+    for (let i = 0; i <= 120; i++) f.push({ x: i, y: Math.round(i * 0.3), p: 0.5, t: i * 8 });
+    const pts = f.finish();
+    // Ideal line y = 0.3x; compare the middle where the filter has settled.
+    const mid = pts.filter((p) => p.x > 20 && p.x < 100);
+    const worst = Math.max(...mid.map((p) => Math.abs(p.y - 0.3 * p.x)));
+    expect(worst).toBeLessThan(0.75); // raw staircase error reaches 0.5 and jumps 1px at a time
+    // Consecutive slope changes stay tiny: no visible steps.
+    let maxTurn = 0;
+    for (let i = 2; i < mid.length; i++) {
+      const a = Math.atan2(mid[i - 1].y - mid[i - 2].y, mid[i - 1].x - mid[i - 2].x);
+      const b = Math.atan2(mid[i].y - mid[i - 1].y, mid[i].x - mid[i - 1].x);
+      maxTurn = Math.max(maxTurn, Math.abs(b - a));
+    }
+    expect(maxTurn).toBeLessThan(0.35);
+  });
+
+  it('tapers pen strokes at both ends', () => {
+    const f = new InkFilter({ width: 3, pressure: true, zoom: 1 });
+    for (let i = 0; i <= 60; i++) f.push({ x: i * 2, y: 0, p: 0.5, t: i * 8 });
+    const pts = f.finish();
+    const midW = pts[Math.floor(pts.length / 2)].w;
+    expect(pts[0].w).toBeLessThan(midW * 0.8);
+    expect(pts[pts.length - 1].w).toBeLessThan(midW * 0.8);
+  });
+});

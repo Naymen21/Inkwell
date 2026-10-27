@@ -17,7 +17,7 @@ import { TextLayer } from './textLayer';
 import { EraserTool, InkTool, LassoTool, TextTool, hitObject, type Tool } from './tools';
 import { Toolbar } from './toolbar';
 
-const GAP = 18;
+const GAP = 12;
 /** Screen px kept clear above the first page for the floating toolbar. */
 const TOP = 108;
 const MIN_Z = 0.25, MAX_Z = 6;
@@ -66,7 +66,11 @@ export class Editor {
   private docH = 800;
   private vw = 0;
   private vh = 0;
-  dpr = Math.min(3, window.devicePixelRatio || 1);
+  /**
+   * Canvas pixels per CSS pixel. Never below 2: on standard-density screens the
+   * ink is supersampled and scaled down, which gives smooth, non-jagged edges.
+   */
+  dpr = Math.min(3, Math.max(2, window.devicePixelRatio || 1));
 
   readonly tools: { pen: InkTool; highlighter: InkTool; shape: InkTool; eraser: EraserTool; lasso: LassoTool; text: TextTool };
   tool: Tool;
@@ -241,7 +245,7 @@ export class Editor {
     this.world.style.transform = `translate3d(${tx}px, ${ty}px, 0) scale(${z})`;
     if (Math.abs(z - this.renderZ) > 1e-4) {
       clearTimeout(this.zoomTimer);
-      this.zoomTimer = window.setTimeout(() => { this.renderZ = this.cam.z; this.requestFrame(); this.saveView(); }, 180);
+      this.zoomTimer = window.setTimeout(() => { this.renderZ = this.cam.z; this.requestFrame(); this.saveView(); }, 110);
     }
     this.toolbar?.positionSelMenu();
     this.toolbar?.showPageBadge();
@@ -258,11 +262,14 @@ export class Editor {
   }
 
   fitWidth() {
-    const side = this.vw > 900 ? 48 : 10;
+    // Paper runs edge to edge (like Notability) unless the window is very wide.
+    const side = this.vw > 1400 ? 64 : 0;
     const z = Math.min(2.4, Math.max(MIN_Z, (this.vw - 2 * side) / this.docW));
-    const top = (TOP - this.cam.ty) / this.cam.z;
+    // Full-bleed paper starts at the very top, under the floating toolbar.
+    const anchor = side ? TOP : 0;
+    const top = (anchor - this.cam.ty) / this.cam.z;
     this.cam.z = z;
-    this.cam.ty = TOP - Math.max(0, top) * z;
+    this.cam.ty = anchor - Math.max(0, top) * z;
     this.renderZ = z;
     this.applyCam();
   }
@@ -282,7 +289,7 @@ export class Editor {
         return;
       }
     } catch { /* ignore */ }
-    this.cam.ty = TOP;
+    this.cam.ty = 0;
     this.fitWidth();
   }
 
@@ -294,7 +301,7 @@ export class Editor {
     const r = this.viewport.getBoundingClientRect();
     this.vw = r.width;
     this.vh = r.height;
-    this.dpr = Math.min(3, window.devicePixelRatio || 1);
+    this.dpr = Math.min(3, Math.max(2, window.devicePixelRatio || 1));
     this.overlay.width = Math.round(this.vw * this.dpr);
     this.overlay.height = Math.round(this.vh * this.dpr);
     this.overlay.style.width = `${this.vw}px`;

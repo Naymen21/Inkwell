@@ -33,6 +33,13 @@ const TOOLS: { name: ToolName; icon: string; label: string }[] = [
 
 const ERASER_SIZES = [10, 18, 32];
 
+function paleInk(hex: string) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+  if (!m) return false;
+  const v = parseInt(m[1], 16);
+  return 0.2126 * ((v >> 16) & 255) + 0.7152 * ((v >> 8) & 255) + 0.0722 * (v & 255) > 185;
+}
+
 const fmt = (t: number) => {
   t = Math.max(0, Math.floor(t));
   const hh = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = t % 60;
@@ -148,6 +155,8 @@ export class Toolbar {
       b.classList.toggle('active', settings.tool === n);
       const c = n === 'highlighter' ? settings.highlighter.color : n === 'pen' || n === 'shape' ? settings.pen.color : n === 'text' ? settings.text.color : '';
       b.style.setProperty('--ink', c || 'transparent');
+      // Active icon takes its ink color, unless that ink is too pale to read (white, yellow).
+      b.style.setProperty('--tint', c && !paleInk(c) ? c : 'var(--accent)');
     }
     this.undoBtn.disabled = !ed.doc.canUndo;
     this.redoBtn.disabled = !ed.doc.canRedo;

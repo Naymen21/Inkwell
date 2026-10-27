@@ -9,42 +9,61 @@ export interface InkStyle {
   width: number;
   /** false = constant width (highlighter, or pressure turned off). */
   pressure: boolean;
+  /** Current zoom, so smoothing works in screen pixels (input is quantized to them). */
+  zoom?: number;
 }
 
+const MIN_CUTOFF = 1.5; // Hz — smoothing strength when moving slowly
+const BETA = 0.02; // how fast smoothing relaxes with speed (per screen px/s)
+const D_CUTOFF = 1; // Hz — smoothing of the speed estimate itself
+
+const alpha = (cutoff: number, dt: number) => 1 / (1 + 1 / (2 * Math.PI * cutoff * dt));
+
 /**
- * Streaming filter: exponential smoothing on position whose strength drops as
- * the pen speeds up (one-euro style), so slow writing is steady and fast
- * strokes don't lag behind the tip.
+ * One-Euro filter (Casiez et al.): heavy smoothing when the pen moves slowly,
+ * which erases mouse/finger pixel quantization and hand jitter, relaxing as
+ * the pen speeds up so fast strokes keep their shape. The renderer draws
+ * through to the raw tip, so the smoothing lag is never visible.
  */
 export class InkFilter {
   pts: InkPoint[] = [];
   private sx = 0; private sy = 0; private sw = 0;
-  private lastT = 0; private speed = 0; private n = 0;
+  private rx = 0; private ry = 0; private ds = 0;
+  private lastT = 0; private n = 0;
 
   constructor(private style: InkStyle) {}
 
   push(s: Sample): InkPoint | null {
+    const zoom = this.style.zoom ?? 1;
     if (this.n === 0) {
-      this.sx = s.x; this.sy = s.y; this.lastT = s.t;
+      this.sx = this.rx = s.x; this.sy = this.ry = s.y; this.lastT = s.t;
       this.sw = this.width(s.p, 0);
       this.n++;
       const p = { x: s.x, y: s.y, w: this.sw };
       this.pts.push(p);
       return p;
     }
-    const dt = Math.max(1, s.t - this.lastT);
-    const d = Math.hypot(s.x - this.sx, s.y - this.sy);
-    if (d < 0.25) return null;
-    this.speed = this.speed * 0.6 + (d / dt) * 0.4;
-    const a = Math.min(1, 0.55 + this.speed * 0.45);
+    const raw = Math.hypot(s.x - this.rx, s.y - this.ry);
+    if (raw * zoom < 0.2) return null; // duplicate sample
+    // Coalesced events can share a timestamp; assume a 240 Hz digitizer then.
+    const dt = Math.max(1 / 240, (s.t - this.lastT) / 1000);
+    const speedPx = (raw * zoom) / dt;
+    this.ds += (speedPx - this.ds) * alpha(D_CUTOFF, dt);
+    const a = alpha(MIN_CUTOFF + BETA * this.ds, dt);
     this.sx += (s.x - this.sx) * a;
     this.sy += (s.y - this.sy) * a;
-    this.sw += (this.width(s.p, this.speed) - this.sw) * 0.35;
-    this.lastT = s.t;
+    const ptPerMs = this.ds / zoom / 1000;
+    this.sw += (this.width(s.p, ptPerMs) - this.sw) * 0.3;
+    this.rx = s.x; this.ry = s.y; this.lastT = s.t;
     this.n++;
     const p = { x: this.sx, y: this.sy, w: this.sw };
     this.pts.push(p);
     return p;
+  }
+
+  /** The in-progress stroke for display: starts with the same taper the final stroke gets. */
+  view(): InkPoint[] {
+    return this.style.pressure ? taper(this.pts, true, false) : this.pts;
   }
 
   /** Width for a sample. Thicker with force, thinner when moving fast (ballpoint feel). */
@@ -56,14 +75,44 @@ export class InkFilter {
     return b * (0.45 + 0.75 * p) * v;
   }
 
-  /** Close the stroke at the raw end point so the ink reaches where the pen lifted. */
+  /**
+   * Final stroke: close at the raw end point so the ink reaches where the pen
+   * lifted, even out the width (no lumpy edges), and taper both ends slightly
+   * like a real pen nib.
+   */
   finish(last?: Sample): InkPoint[] {
-    if (last && this.pts.length) {
-      const tail = this.pts[this.pts.length - 1];
-      if (Math.hypot(last.x - tail.x, last.y - tail.y) > 0.5) this.pts.push({ x: last.x, y: last.y, w: tail.w });
+    let pts = this.pts.slice();
+    if (last && pts.length) {
+      const tail = pts[pts.length - 1];
+      if (Math.hypot(last.x - tail.x, last.y - tail.y) > 0.5) pts.push({ x: last.x, y: last.y, w: tail.w });
     }
-    return this.pts;
+    if (!this.style.pressure) return pts;
+    pts = smoothWidths(smoothWidths(pts));
+    return taper(pts, true, true);
   }
+}
+
+function smoothWidths(pts: InkPoint[]): InkPoint[] {
+  if (pts.length < 3) return pts;
+  return pts.map((p, i) => i === 0 || i === pts.length - 1 ? p
+    : { ...p, w: pts[i - 1].w * 0.25 + p.w * 0.5 + pts[i + 1].w * 0.25 });
+}
+
+/** Ease the width in/out over the first/last few points of arc length. */
+export function taper(pts: InkPoint[], start: boolean, end: boolean): InkPoint[] {
+  if (pts.length < 3) return pts;
+  let total = 0;
+  const acc = [0];
+  for (let i = 1; i < pts.length; i++) { total += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y); acc.push(total); }
+  const len = Math.min(6, total * 0.18);
+  if (len < 0.5) return pts;
+  const ease = (d: number) => { const t = Math.min(1, d / len); return 0.62 + 0.38 * t * (2 - t); };
+  return pts.map((p, i) => {
+    let k = 1;
+    if (start) k = Math.min(k, ease(acc[i]));
+    if (end) k = Math.min(k, ease(total - acc[i]));
+    return k === 1 ? p : { ...p, w: p.w * k };
+  });
 }
 
 /** Ramer–Douglas–Peucker over (x, y, w): keeps width changes, drops redundant points. */
@@ -115,13 +164,13 @@ export function fromFlat(flat: number[]): InkPoint[] {
 
 const round2 = (v: number) => Math.round(v * 100) / 100;
 
-/** Interpolate a Catmull-Rom spline through the control points (sampled ~1.5pt apart). */
+/** Interpolate a Catmull-Rom spline through the control points (sampled ~0.6pt apart, so curves stay round when zoomed). */
 export function spline(pts: InkPoint[]): InkPoint[] {
   if (pts.length < 3) return pts.slice();
   const out: InkPoint[] = [pts[0]];
   for (let i = 0; i < pts.length - 1; i++) {
     const p0 = pts[i - 1] ?? pts[i], p1 = pts[i], p2 = pts[i + 1], p3 = pts[i + 2] ?? p2;
-    const steps = Math.min(24, Math.max(1, Math.ceil(Math.hypot(p2.x - p1.x, p2.y - p1.y) / 1.5)));
+    const steps = Math.min(64, Math.max(1, Math.ceil(Math.hypot(p2.x - p1.x, p2.y - p1.y) / 0.6)));
     for (let s = 1; s <= steps; s++) {
       const t = s / steps, t2 = t * t, t3 = t2 * t;
       const f = (a: number, b: number, c: number, d: number) =>
@@ -146,11 +195,11 @@ export interface PathSink {
  * always add up and never cancel — no holes on fast, sharp strokes, and one
  * fill means translucent ink (highlighter) never doubles up.
  */
-export function buildPath(sink: PathSink, input: InkPoint[]) {
-  const P = input.length > 2 ? spline(input) : input;
+export function buildPath(sink: PathSink, input: InkPoint[], k = 1, splined = false) {
+  const P = splined || input.length <= 2 ? input : spline(input);
   const n = P.length;
   if (!n) return;
-  const r = (i: number) => Math.max(0.3, P[i].w / 2);
+  const r = (i: number) => Math.max(0.3, P[i].w / 2) * k;
   disc(sink, P[0].x, P[0].y, r(0));
   let pdx = 0, pdy = 0;
   for (let i = 1; i < n; i++) {
@@ -170,6 +219,52 @@ export function buildPath(sink: PathSink, input: InkPoint[]) {
     sink.closePath();
   }
   if (n > 1) disc(sink, P[n - 1].x, P[n - 1].y, r(n - 1));
+}
+
+/**
+ * One smooth closed contour around the ribbon (left edge forward, round cap,
+ * right edge back, round cap), using normals averaged over neighbors so the
+ * edge has no facets or seams. On its own it can fold over at very sharp
+ * turns and leave a hole, so pen ink pairs it with a slightly shrunk union
+ * core ({@link buildPen}).
+ */
+export function buildOutline(sink: PathSink, P: InkPoint[]) {
+  const n = P.length;
+  if (!n) return;
+  const r = (i: number) => Math.max(0.3, P[i].w / 2);
+  if (n === 1 || (n === 2 && Math.hypot(P[1].x - P[0].x, P[1].y - P[0].y) < 0.01)) {
+    disc(sink, P[0].x, P[0].y, r(0));
+    return;
+  }
+  const nx: number[] = [], ny: number[] = [];
+  let px = 0, py = 1;
+  for (let i = 0; i < n; i++) {
+    const a = P[Math.max(0, i - 1)], b = P[Math.min(n - 1, i + 1)];
+    let dx = b.x - a.x, dy = b.y - a.y;
+    const l = Math.hypot(dx, dy);
+    if (l > 1e-6) { dx /= l; dy /= l; px = -dy; py = dx; }
+    nx.push(px); ny.push(py);
+  }
+  sink.moveTo(P[0].x + nx[0] * r(0), P[0].y + ny[0] * r(0));
+  for (let i = 1; i < n; i++) sink.lineTo(P[i].x + nx[i] * r(i), P[i].y + ny[i] * r(i));
+  const ae = Math.atan2(ny[n - 1], nx[n - 1]);
+  sink.arc(P[n - 1].x, P[n - 1].y, r(n - 1), ae, ae - Math.PI, true);
+  for (let i = n - 2; i >= 0; i--) sink.lineTo(P[i].x - nx[i] * r(i), P[i].y - ny[i] * r(i));
+  const as = Math.atan2(-ny[0], -nx[0]);
+  sink.arc(P[0].x, P[0].y, r(0), as, as - Math.PI, true);
+  sink.closePath();
+}
+
+/**
+ * Pen ink geometry. `edge` is the smooth contour that defines what you see;
+ * `core` is the gap-proof union at 85% radius, filled with the same opaque
+ * color, so any fold hole in the contour is covered while every visible edge
+ * still comes from the smooth contour.
+ */
+export function buildPen(edge: PathSink, core: PathSink, input: InkPoint[]) {
+  const P = input.length > 2 ? spline(input) : input;
+  buildOutline(edge, P);
+  buildPath(core, P, 0.85, true);
 }
 
 /** Smoothed centerline only — for constant-width ink drawn with a native round-capped stroke. */
