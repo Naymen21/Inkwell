@@ -7,6 +7,7 @@ import { icons } from '../ui/icons';
 import { busy, confirmBox, esc, menu, promptText, toast } from '../ui/modal';
 import { openSettings } from '../ui/settingsPanel';
 import { uid } from '../util/ids';
+import { pickFiles } from '../ui/pickFiles';
 
 type Filter = 'all' | 'unfiled' | 'trash' | string;
 type Sort = 'modified' | 'created' | 'title';
@@ -77,8 +78,12 @@ export async function renderLibrary(mount: HTMLElement, open: (id: string) => vo
   moreBtn.onclick = () => libMenu(moreBtn);
   const newBtn = h('button', 'new-btn', `${icons.plus}<span>New</span>`);
   newBtn.onclick = async () => {
-    const n = await createNote(currentFolder());
-    open(n.id);
+    try {
+      const n = await createNote(currentFolder());
+      open(n.id);
+    } catch (e) {
+      storageFailed(e);
+    }
   };
   header.append(menuBtn, heading, moreBtn, newBtn);
   const grid = h('div', 'grid');
@@ -86,8 +91,23 @@ export async function renderLibrary(mount: HTMLElement, open: (id: string) => vo
 
   const currentFolder = () => (['all', 'unfiled', 'trash'].includes(state.filter) ? null : state.filter);
 
+  /** Storage problems are the one failure every action shares; say so plainly. */
+  function storageFailed(e: unknown) {
+    console.error(e);
+    const msg = e instanceof Error ? e.message : String(e);
+    toast(`Couldn’t save on this device. ${msg}`, 6000);
+  }
+
   async function reload() {
-    [notes, folders] = await Promise.all([db.listNotes(), db.listFolders()]);
+    try {
+      [notes, folders] = await Promise.all([db.listNotes(), db.listFolders()]);
+    } catch (e) {
+      grid.replaceChildren(h('div', 'empty storage-blocked', `<div class="empty-art">${icons.notes}</div>
+        <p><b>Inkwell can’t save notes in this browser</b></p>
+        <p class="muted">${esc(e instanceof Error ? e.message : String(e))}</p>
+        <p class="muted">On iPad: turn off Private Browsing, or open Inkwell in Safari directly (not inside another app). Settings › Safari › Advanced › “Block All Cookies” also blocks storage.</p>`));
+      return;
+    }
     if (!['all', 'unfiled', 'trash'].includes(state.filter) && !folders.some((f) => f.id === state.filter)) state.filter = 'all';
     drawSide();
     drawGrid();
@@ -127,7 +147,9 @@ export async function renderLibrary(mount: HTMLElement, open: (id: string) => vo
     add.onclick = async () => {
       const name = await promptText('New folder', '', 'Create');
       if (!name) return;
-      await db.putFolder({ id: uid(), name, parent: null, created: Date.now(), color: FOLDER_COLORS[tops().length % FOLDER_COLORS.length] });
+      try {
+        await db.putFolder({ id: uid(), name, parent: null, created: Date.now(), color: FOLDER_COLORS[tops().length % FOLDER_COLORS.length] });
+      } catch (e) { storageFailed(e); return; }
       reload();
     };
     head.append(add);
@@ -325,13 +347,10 @@ export async function renderLibrary(mount: HTMLElement, open: (id: string) => vo
   }
 
   function importFlow() {
-    const i = h('input');
-    i.type = 'file';
-    i.accept = '.pdf,application/pdf,.inkwell,application/json';
-    i.multiple = true;
-    i.onchange = () => importFiles([...(i.files ?? [])], currentFolder());
-    i.click();
+    pickFiles('.pdf,application/pdf,.inkwell,.json,application/json', { multiple: true })
+      .then((files) => { if (files.length) importFiles(files, currentFolder()); });
   }
+
 
   root.addEventListener('dragover', (e) => e.preventDefault());
   root.addEventListener('drop', (e) => {

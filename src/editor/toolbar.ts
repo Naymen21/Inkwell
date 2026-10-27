@@ -13,6 +13,7 @@ import { DEFAULT_DOCK, HL_COLORS, PAPER_COLORS, PEN_COLORS, saveSettings, settin
 import { hasClipboard } from './tools';
 import { db } from '../persist/db';
 import { InklyPanel } from './inkly';
+import { pickFile } from '../ui/pickFiles';
 import { Recorder } from './audio';
 
 const h = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', html = '') => {
@@ -46,16 +47,6 @@ const fmt = (t: number) => {
   return (hh ? `${hh}:${String(m).padStart(2, '0')}` : `${m}`) + `:${String(s).padStart(2, '0')}`;
 };
 
-function pickFile(accept: string, capture = false): Promise<File | null> {
-  return new Promise((resolve) => {
-    const i = h('input');
-    i.type = 'file';
-    i.accept = accept;
-    if (capture) i.setAttribute('capture', 'environment');
-    i.onchange = () => resolve(i.files?.[0] ?? null);
-    i.click();
-  });
-}
 
 type ExportChoice = { format: 'pdf' | 'note'; background: boolean; range: 'all' | 'current' };
 

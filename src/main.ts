@@ -33,6 +33,14 @@ async function route() {
 window.addEventListener('hashchange', () => { routing = routing.then(route); });
 routing = routing.then(route);
 
+// Never fail silently: surface unexpected errors (helps on iPad, where there's no console).
+const report = (err: unknown) => {
+  const msg = err instanceof Error ? err.message : typeof err === 'object' && err && 'message' in err ? String((err as { message: unknown }).message) : String(err);
+  if (msg && msg !== 'undefined') toast(`Something went wrong: ${msg}`, 6000);
+};
+window.addEventListener('unhandledrejection', (e) => report(e.reason));
+window.addEventListener('error', (e) => report(e.error ?? e.message));
+
 // Ask the browser not to evict our notes under storage pressure.
 navigator.storage?.persist?.().catch(() => {});
 

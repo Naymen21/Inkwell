@@ -13,8 +13,18 @@ let dbp: Promise<IDBDatabase> | null = null;
 
 function open(): Promise<IDBDatabase> {
   if (dbp) return dbp;
-  dbp = new Promise((resolve, reject) => {
-    const req = indexedDB.open('inkwell', 1);
+  dbp = new Promise<IDBDatabase>((resolve, reject) => {
+    let req: IDBOpenDBRequest;
+    try {
+      if (typeof indexedDB === 'undefined') throw new Error('This browser has storage turned off.');
+      req = indexedDB.open('inkwell', 1);
+    } catch (e) {
+      reject(e instanceof Error && /security|denied|turned off/i.test(e.message) ? new Error('This browser is blocking on-device storage.') : e);
+      return;
+    }
+    // Safari can leave an open request hanging; don't wait forever.
+    const timer = setTimeout(() => reject(new Error('On-device storage didn’t respond. Reload and try again.')), 6000);
+    req.onblocked = () => reject(new Error('Inkwell is open in another tab with an older version. Close other Inkwell tabs.'));
     req.onupgradeneeded = () => {
       const db = req.result;
       db.createObjectStore('notes', { keyPath: 'id' });
@@ -25,9 +35,11 @@ function open(): Promise<IDBDatabase> {
       db.createObjectStore('audio', { keyPath: 'id' }).createIndex('note', 'note');
       db.createObjectStore('chunks', { keyPath: ['clip', 'i'] }).createIndex('note', 'note');
     };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+    req.onsuccess = () => { clearTimeout(timer); resolve(req.result); };
+    req.onerror = () => { clearTimeout(timer); reject(req.error ?? new Error('This browser is blocking on-device storage.')); };
   });
+  // Let a later call retry instead of reusing a failure.
+  dbp.catch(() => { dbp = null; });
   return dbp;
 }
 
