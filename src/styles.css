@@ -880,3 +880,13 @@ body.dragging-note, body.dragging-note * { cursor: grabbing !important; -webkit-
 .nav-item.drop-hover .ni-count, .nav-item.drop-hover .ni-more { display: none !important; }
 .nav-item.drop-done { animation: drop-pulse 0.55s ease-out; }
 @keyframes drop-pulse { 0% { background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); } 100% { background: transparent; box-shadow: none; } }
+
+/* Inkly credits */
+.inkly-credits { font: 600 12px/1 var(--font); color: var(--muted); margin-left: 4px; padding: 5px 9px; border-radius: 999px; background: var(--hover); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.inkly-credits:empty { display: none; }
+.inkly-credits.low { color: #b45309; background: rgba(245, 158, 11, 0.14); }
+.inkly-credits.out { color: var(--danger); background: rgba(220, 38, 38, 0.1); }
+.inkly.no-credits .inkly-chip, .inkly.no-credits .inkly-send { opacity: 0.45; pointer-events: none; }
+.num-field { width: 76px; height: 34px; border-radius: 9px; border: 1px solid var(--line); background: var(--panel); padding: 0 8px; text-align: right; font-variant-numeric: tabular-nums; -webkit-user-select: text; user-select: text; }
+.inkly-title { min-width: 0; flex-wrap: wrap; row-gap: 5px; }
+.inkly-head .icon-btn { flex: none; }

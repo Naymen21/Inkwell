@@ -71,6 +71,17 @@ export function openSettings(onChange?: () => void) {
           row('Shape detection', 'Draw a shape and hold the pen still at the end to snap it into a clean shape.', settings.holdToSnap, (v) => (settings.holdToSnap = v)),
           row('Palm detection', 'Only the pencil (or mouse) writes. Fingers scroll and zoom, so you can rest your hand on the screen.', !settings.fingerDraw, (v) => (settings.fingerDraw = !v)),
           row('Pressure sensitivity', 'Pen lines get thicker the harder you press.', settings.pen.pressure, (v) => (settings.pen.pressure = v)),
+          (() => {
+            const r = h('label', 'set-row');
+            r.innerHTML = '<span class="set-text"><span class="set-label">Inkly credits per day</span><span class="set-desc">Answers Inkly can give per day on the hosted app. Resets at midnight Pacific. (Inside Claude it uses your Claude plan instead.)</span></span>';
+            const n = h('input', 'num-field');
+            n.type = 'number'; n.min = '1'; n.max = '1000'; n.step = '5';
+            n.value = String(settings.inklyDailyCredits);
+            n.setAttribute('aria-label', 'Inkly credits per day');
+            n.onchange = () => { settings.inklyDailyCredits = Math.max(1, Math.min(1000, Math.round(Number(n.value) || 50))); n.value = String(settings.inklyDailyCredits); changed(); };
+            r.append(n);
+            return r;
+          })(),
           row('Auto-deselect eraser', 'After erasing, switch back to the tool you were using.', settings.autoDeselectEraser, (v) => (settings.autoDeselectEraser = v)),
         );
         pane.append(g);

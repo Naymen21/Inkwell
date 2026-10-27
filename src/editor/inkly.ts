@@ -10,13 +10,15 @@ import { esc } from '../ui/modal';
 import { uid } from '../util/ids';
 import { useCapability } from '../util/claude';
 import { serverBackend, setPasscode } from './inklyServer';
+import { Credits, formatWait } from './credits';
+import { settings } from './settings';
 import type { Editor } from './editor';
 import { newPage } from './editor';
 
 type Role = 'user' | 'assistant';
 interface Turn { role: Role; content: string; label?: string; failed?: boolean }
 
-type SampleErr = { code?: string; message?: string; text?: string };
+type SampleErr = { code?: string; message?: string; text?: string; retryAfter?: number; daily?: boolean };
 interface SampleFn {
   (input: string | { role: Role; content: string }[], opts?: Record<string, unknown>): Promise<{ text: string; truncated: boolean }>;
   limits(): Promise<{ maxPromptBytes: number; images?: { maxCount: number } }>;
@@ -140,7 +142,7 @@ export class InklyPanel {
 
   private build() {
     const head = h('div', 'inkly-head');
-    head.innerHTML = `<span class="inkly-avatar">${icons.inkly}</span><div class="inkly-title"><b>Inkly</b><span class="ai-pill">AI</span><span class="inkly-via"></span></div>`;
+    head.innerHTML = `<span class="inkly-avatar">${icons.inkly}</span><div class="inkly-title"><b>Inkly</b><span class="ai-pill">AI</span><span class="inkly-credits" aria-live="polite"></span></div>`;
     const clear = h('button', 'icon-btn small', icons.restore);
     clear.title = 'New chat';
     clear.setAttribute('aria-label', 'New chat');
@@ -184,6 +186,40 @@ export class InklyPanel {
     this.renderLog();
   }
 
+  private credits = new Credits(() => settings.inklyDailyCredits);
+  private tick = 0;
+  /** Credits only apply to the hosted Gemini backend; Claude uses the viewer's plan. */
+  private get metered() { return !!this.sample && this.sample.provider !== 'Claude'; }
+
+  private renderCredits() {
+    const el = this.el.querySelector<HTMLElement>('.inkly-credits');
+    if (!el) return;
+    clearInterval(this.tick);
+    if (!this.metered) { el.textContent = ''; el.className = 'inkly-credits'; this.setLocked(false); return; }
+    const update = () => {
+      const until = this.credits.blockedUntil();
+      if (until) {
+        el.textContent = `Out of credits · resets in ${formatWait(until - Date.now())}`;
+        el.className = 'inkly-credits out';
+        this.setLocked(true);
+        if (until <= Date.now()) { this.renderCredits(); }
+      } else {
+        const left = this.credits.left, total = settings.inklyDailyCredits;
+        el.textContent = `${left} of ${total} credits left`;
+        el.className = `inkly-credits${left <= Math.max(3, total * 0.1) ? ' low' : ''}`;
+        this.setLocked(false);
+      }
+    };
+    update();
+    this.tick = window.setInterval(update, 1000);
+  }
+
+  private setLocked(locked: boolean) {
+    this.el.classList.toggle('no-credits', locked);
+    this.input.disabled = locked;
+    this.input.placeholder = locked ? 'Out of credits for today' : 'Ask about your notes…';
+  }
+
   private renderLog() {
     const log = this.log;
     log.innerHTML = '';
@@ -198,8 +234,7 @@ export class InklyPanel {
       return;
     }
     this.el.classList.remove('offline');
-    const via = this.el.querySelector('.inkly-via');
-    if (via && this.sample?.provider) via.textContent = `via ${this.sample.provider}`;
+    this.renderCredits();
     if (!this.turns.length) {
       const hi = h('div', 'inkly-msg bot');
       hi.innerHTML = `<span class="inkly-avatar sm">${icons.inkly}</span><div class="bubble"><p>Hi! I can read your handwriting and PDFs in this note. Want a study guide, a summary, or flashcards?</p></div>`;
@@ -295,6 +330,7 @@ export class InklyPanel {
   private async ask(prompt: string, label: string, scope: 'page' | 'note', _add?: string) {
     const sample = this.sample;
     if (!sample || this.busy) return;
+    if (this.metered && this.credits.blockedUntil()) { this.renderCredits(); return; }
     this.toggle(true);
     const ctl = new AbortController();
     this.busy = ctl;
@@ -320,6 +356,7 @@ export class InklyPanel {
         onText: ({ text }: { text: string }) => { bot.content = text; const b = bubble(); if (b) b.innerHTML = renderMd(text); this.log.scrollTop = this.log.scrollHeight; },
       });
       bot.content = text + (truncated ? '\n\n_(Cut short — ask for a smaller piece.)_' : '');
+      if (this.metered) this.credits.spend();
     } catch (e) {
       const err = e as SampleErr;
       if (err.code === 'cancelled') bot.content = err.text ? `${err.text}\n\n(stopped)` : '';
@@ -327,6 +364,11 @@ export class InklyPanel {
         bot.content = err.text ? `${err.text}\n\n—\n${ERRORS[err.code ?? ''] ?? ERRORS.upstream_error}` : ERRORS[err.code ?? ''] ?? ERRORS.upstream_error;
         bot.failed = !err.text;
         if (err.code === 'passcode') this.askPasscode();
+        if (err.code === 'rate_limited' && this.metered) {
+          this.credits.blockFor(err.retryAfter, !!err.daily);
+          const until = this.credits.blockedUntil();
+          if (until) bot.content = `Google’s free limit is used up for now. Inkly will be back in ${formatWait(until - Date.now())}.`;
+        }
       }
       if (!bot.content) this.turns.splice(this.turns.indexOf(user), 2);
     } finally {

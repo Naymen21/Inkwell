@@ -24,6 +24,8 @@ export interface Settings {
   lassoMode: 'free' | 'rect';
   dock: DockSlot[];
   appearance: Appearance;
+  /** Inkly answers per day on the hosted (Gemini) app. */
+  inklyDailyCredits: number;
   paper: { template: Template; color: string; size: 'letter' | 'a4' };
 }
 
@@ -47,6 +49,7 @@ const defaults: Settings = {
   lassoMode: 'free',
   dock: DEFAULT_DOCK.map((id) => ({ id, hidden: false })),
   appearance: 'system',
+  inklyDailyCredits: 50,
   paper: { template: 'grid', color: '#ffffff', size: 'letter' },
 };
 

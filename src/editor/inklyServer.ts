@@ -48,7 +48,7 @@ export async function serverBackend(): Promise<InklyBackend | null> {
     }
     if (!res.ok || !res.body) {
       const e = await res.json().catch(() => ({}));
-      throw { code: e.code ?? 'upstream_error', message: e.message ?? res.statusText };
+      throw { code: e.code ?? 'upstream_error', message: e.message ?? res.statusText, retryAfter: e.retryAfter, daily: e.daily };
     }
     // Gemini SSE: each `data:` line is a JSON chunk with candidate text parts.
     const reader = res.body.getReader();

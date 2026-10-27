@@ -70,5 +70,8 @@ export async function POST(req: Request) {
   }
   const s = last.status;
   const code = s === 429 ? 'rate_limited' : s === 503 ? 'busy' : s === 400 ? 'invalid_request' : s === 401 || s === 403 ? 'not_configured' : 'upstream_error';
-  return json({ code, message: last.detail.slice(0, 300) }, s === 429 ? 429 : 502);
+  // Google's 429 says how long to wait (RetryInfo) and whether a per-day quota ran out.
+  const retry = /"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/.exec(last.detail);
+  const daily = s === 429 && /PerDay/i.test(last.detail);
+  return json({ code, message: last.detail.slice(0, 300), retryAfter: retry ? Math.ceil(Number(retry[1])) : undefined, daily }, s === 429 ? 429 : 502);
 }
