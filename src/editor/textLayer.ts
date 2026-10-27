@@ -5,6 +5,9 @@ import { FONTS, TEXT_LINE } from '../render/draw';
 import type { Editor } from './editor';
 import { settings } from './settings';
 
+/** How far beside the page a sticky note may be placed. */
+export const MARGIN = 240;
+
 export class TextLayer {
   private els = new Map<string, HTMLDivElement>();
   private editing: { id: string; el: HTMLDivElement; draft: TextObj | null; style: Pick<TextObj, 'size' | 'color' | 'bold' | 'font'> } | null = null;
@@ -120,7 +123,8 @@ export class TextLayer {
         if (!o || o.kind !== 'sticky') return;
         if (!moved) { onTap?.(); return; }
         const pv = this.ed.pageView(o.page)!;
-        const x = Math.max(0, Math.min(pv.page.w - 30, o.x + (ev.clientX - sx) / z));
+        // Stickies may sit in the margin beside the page (up to a card's width out).
+        const x = Math.max(-MARGIN, Math.min(pv.page.w + MARGIN - 30, o.x + (ev.clientX - sx) / z));
         const y = Math.max(0, Math.min(pv.page.h - 30, o.y + (ev.clientY - sy) / z));
         this.stickyPatch(id, { x, y });
       };

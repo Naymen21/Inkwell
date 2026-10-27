@@ -7,6 +7,7 @@ import { db } from '../persist/db';
 import { media } from '../render/media';
 import { renderPageToCanvas } from '../render/draw';
 import { uid } from '../util/ids';
+import { detectHeadings, type TextLine } from './headings';
 import { inClaude, useCapability } from '../util/claude';
 
 async function loadPdfjs() {
@@ -19,12 +20,14 @@ async function loadPdfjs() {
 }
 
 /** Rasterize each PDF page into the media store and return pages that use them as backgrounds. */
-export async function pdfToPages(file: Blob, progress: (done: number, total: number) => void): Promise<{ pages: Page[]; outline: OutlineEntry[] }> {
+export async function pdfToPages(file: Blob, progress: (done: number, total: number) => void): Promise<{ pages: Page[]; outline: OutlineEntry[]; detected: boolean }> {
   const pdfjs = await loadPdfjs();
   const task = pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) });
   const pdf = await task.promise;
   const pages: Page[] = [];
   const outline: OutlineEntry[] = [];
+  const lines: TextLine[] = [];
+  let detected = false;
   try {
     for (let i = 1; i <= pdf.numPages; i++) {
       progress(i - 1, pdf.numPages);
@@ -41,6 +44,21 @@ export async function pdfToPages(file: Blob, progress: (done: number, total: num
       canvas.width = canvas.height = 0;
       const hash = await db.putMedia(blob);
       pages.push({ id: uid(), w: Math.round(base.width), h: Math.round(base.height), template: 'blank', paper: '#ffffff', bg: hash });
+      // Keep the page's text lines (with size) in case the PDF has no outline of its own.
+      try {
+        const tc = await page.getTextContent();
+        const byY = new Map<number, { text: string; size: number }>();
+        for (const it of tc.items as { str?: string; transform?: number[]; height?: number }[]) {
+          if (!it.str || !it.transform) continue;
+          const y = Math.round((base.height - it.transform[5]) / 3) * 3;
+          const size = it.height || Math.hypot(it.transform[2], it.transform[3]);
+          const line = byY.get(y) ?? { text: '', size: 0 };
+          line.text += (line.text && !line.text.endsWith(' ') ? ' ' : '') + it.str;
+          line.size = Math.max(line.size, size);
+          byY.set(y, line);
+        }
+        for (const [y, l] of [...byY].slice(0, 80)) lines.push({ page: i - 1, text: l.text, size: l.size, y });
+      } catch { /* no text layer (scanned page) */ }
       page.cleanup();
     }
     // The PDF's own table of contents becomes jump links in the pages panel.
@@ -66,11 +84,16 @@ export async function pdfToPages(file: Blob, progress: (done: number, total: num
       };
       await walk((await doc.getOutline()) ?? [], 0);
     } catch { /* PDF has no usable outline */ }
+    // No outline inside the PDF: build one from its headings.
+    if (!outline.length) {
+      for (const h of detectHeadings(lines, pages.length)) outline.push({ title: h.title, page: pages[h.page].id, level: h.level });
+      detected = outline.length > 0;
+    }
   } finally {
     progress(pdf.numPages, pdf.numPages);
     task.destroy();
   }
-  return { pages, outline };
+  return { pages, outline, detected };
 }
 
 async function preloadMedia(state: DocState) {

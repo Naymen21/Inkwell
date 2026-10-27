@@ -109,6 +109,8 @@ export interface NoteMeta {
   clips: Clip[];
   pageCount?: number;
   outline?: OutlineEntry[];
+  /** True when the outline was found from headings rather than stored in the PDF. */
+  outlineDetected?: boolean;
 }
 
 export interface Folder {

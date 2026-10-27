@@ -389,8 +389,9 @@ export async function renderLibrary(mount: HTMLElement, open: (id: string) => vo
       const b = busy(`Importing ${file.name}…`);
       try {
         if (/\.pdf$/i.test(file.name) || file.type === 'application/pdf') {
-          const { pages, outline } = await pdfToPages(file, (d, t) => b.set(`Importing ${file.name} — page ${Math.min(d + 1, t)} of ${t}`));
-          last = (await createNote(folder, file.name.replace(/\.pdf$/i, ''), pages, outline)).id;
+          const { pages, outline, detected } = await pdfToPages(file, (d, t) => b.set(`Importing ${file.name} — page ${Math.min(d + 1, t)} of ${t}`));
+          last = (await createNote(folder, file.name.replace(/\.pdf$/i, ''), pages, outline, detected)).id;
+          if (!outline.length) toast(`No outline in ${file.name}: it has no table of contents or readable headings (scanned pages can’t be read).`, 6000);
         } else if (/\.inkwell(\.json)?$|\.json$/i.test(file.name)) {
           last = (await importNoteFile(file, folder)).id;
         }

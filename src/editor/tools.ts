@@ -31,21 +31,17 @@ export class InkTool implements Tool {
     createdAt: number; anchor: Pt; shape: Shape | null; timer: number;
   } | null = null;
 
-  /** What the current stroke is: the pen tool can lay down a highlight (Shift, pen barrel button, or "Highlight next"). */
-  private mode: 'pen' | 'highlighter' | 'shape';
-
-  constructor(private ed: Editor, private kind: 'pen' | 'highlighter' | 'shape') { this.mode = kind; }
+  constructor(private ed: Editor, private kind: 'pen' | 'highlighter' | 'shape') {}
 
   private style() {
-    return this.mode === 'highlighter'
+    return this.kind === 'highlighter'
       ? { width: settings.highlighter.width, pressure: false }
-      : { width: settings.pen.width, pressure: settings.pen.pressure && this.mode === 'pen' };
+      : { width: settings.pen.width, pressure: settings.pen.pressure && this.kind === 'pen' };
   }
 
   down(s: Sample) {
     const pv = this.ed.pageAt(s.x, s.y, true);
     if (!pv) return;
-    this.mode = this.kind === 'pen' && this.ed.takeHighlight() ? 'highlighter' : this.kind;
     const l = local(pv, s);
     const filter = new InkFilter({ ...this.style(), zoom: this.ed.cam.z });
     filter.push(l);
@@ -80,7 +76,7 @@ export class InkTool implements Tool {
   /** Hold still at the end of a pen stroke to snap it into a perfect shape. */
   private arm() {
     const L = this.live;
-    if (!L || this.mode !== 'pen' || !settings.holdToSnap) return;
+    if (!L || this.kind !== 'pen' || !settings.holdToSnap) return;
     clearTimeout(L.timer);
     L.timer = window.setTimeout(() => {
       if (this.live !== L) return;
@@ -95,15 +91,15 @@ export class InkTool implements Tool {
     if (!L) return;
     clearTimeout(L.timer);
     this.live = null;
-    const shape = L.shape ?? (this.mode === 'shape' ? recognizeShape(L.raw) : null);
+    const shape = L.shape ?? (this.kind === 'shape' ? recognizeShape(L.raw) : null);
     let pts: InkPoint[];
     if (shape) pts = shapeInk(shape, avgWidth(L.filter.pts, this.style().width));
     else {
       pts = L.filter.finish(L.raw.at(-1));
-      pts = this.mode === 'highlighter' && settings.straightLines ? straighten(pts) ?? simplify(pts) : simplify(pts);
+      pts = this.kind === 'highlighter' && settings.straightLines ? straighten(pts) ?? simplify(pts) : simplify(pts);
     }
     if (!pts.length) { this.ed.requestFrame(); return; }
-    const hl = this.mode === 'highlighter';
+    const hl = this.kind === 'highlighter';
     const flat = toFlat(pts);
     const obj: StrokeObj = {
       kind: 'stroke', id: uid(), page: L.pv.page.id, createdAt: L.createdAt,
@@ -112,7 +108,6 @@ export class InkTool implements Tool {
       opacity: hl ? 0.5 : 1, pts: flat, bbox: strokeBBox(flat),
     };
     this.ed.commitContent([{ t: 'add', obj }], L.pv.page.id);
-    this.mode = this.kind;
   }
 
   cancel() {
@@ -126,7 +121,7 @@ export class InkTool implements Tool {
     if (!L) return;
     this.ed.pageTransform(ctx, L.pv);
     const pts = L.shape ? shapeInk(L.shape, avgWidth(L.filter.pts, this.style().width)) : [...L.filter.view(), ...(L.tip ? [L.tip] : []), ...L.pred];
-    const hl = this.mode === 'highlighter';
+    const hl = this.kind === 'highlighter';
     ctx.globalAlpha = hl ? 0.5 : 1;
     if (hl && !isDark(L.pv.page.paper)) ctx.globalCompositeOperation = 'multiply';
     paintInk(ctx, pts, hl ? settings.highlighter.color : settings.pen.color, hl);

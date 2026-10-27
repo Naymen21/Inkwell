@@ -36,9 +36,9 @@ export function newPage(after?: Page): Page {
   };
 }
 
-export async function createNote(folder: string | null, title = 'Untitled note', pages?: Page[], outline?: OutlineEntry[]): Promise<NoteMeta> {
+export async function createNote(folder: string | null, title = 'Untitled note', pages?: Page[], outline?: OutlineEntry[], outlineDetected = false): Promise<NoteMeta> {
   const now = Date.now();
-  const meta: NoteMeta = { id: uid(), title, folder, created: now, modified: now, clips: [], ...(outline?.length ? { outline } : {}) };
+  const meta: NoteMeta = { id: uid(), title, folder, created: now, modified: now, clips: [], ...(outline?.length ? { outline, ...(outlineDetected ? { outlineDetected } : {}) } : {}) };
   const ps = pages?.length ? pages : [newPage()];
   const snap: Snapshot = { pages: ps, objects: Object.fromEntries(ps.map((p) => [p.id, []])) };
   // Born as a snapshot (not ops) so the first page can't be undone away.
@@ -140,7 +140,7 @@ export class Editor {
     };
     this.tool = this.tools[settings.tool];
     this.toolbar = new Toolbar(this);
-    this.root.append(this.viewport, this.toolbar.el, this.toolbar.pagesPanel, this.toolbar.inkly.el, this.toolbar.selMenu, this.toolbar.playbar, this.toolbar.pageBadge);
+    this.root.append(this.viewport, this.toolbar.el, this.toolbar.pagesPanel, this.toolbar.outlinePanel, this.toolbar.inkly.el, this.toolbar.selMenu, this.toolbar.playbar, this.toolbar.pageBadge);
     mount.append(this.root);
     this.root.classList.toggle('tool-text', settings.tool === 'text');
     this.root.classList.toggle('dot-cursor', ['pen', 'highlighter', 'shape', 'eraser'].includes(settings.tool));
@@ -152,6 +152,7 @@ export class Editor {
     this.resize();
     this.restoreView();
     this.toolbar.update();
+    this.toolbar.renderOutline();
   }
 
   // ------------------------------------------------------------ geometry
@@ -159,6 +160,8 @@ export class Editor {
   private layoutPages() {
     const st = this.doc.state;
     const maxW = Math.max(...st.pages.map((p) => p.w));
+    const side = this.stickySide();
+    this.side = side;
     let y = 0;
     const next: PageView[] = [];
     const seen = new Set<string>();
@@ -169,18 +172,31 @@ export class Editor {
         this.pageMap.set(p.id, pv);
         this.world.append(pv.el);
       }
-      pv.layout(p, (maxW - p.w) / 2, y);
+      pv.layout(p, side + (maxW - p.w) / 2, y);
       y += p.h + GAP;
       next.push(pv);
       seen.add(p.id);
     }
     for (const [id, pv] of this.pageMap) if (!seen.has(id)) { pv.destroy(); this.pageMap.delete(id); }
     this.pages = next;
-    this.docW = maxW;
+    this.docW = maxW + side * 2;
     this.docH = y;
     this.text.syncAll();
     this.clampCam();
     this.applyCam();
+  }
+
+  private side = 0;
+  /** Room needed beside the pages for sticky notes parked in the margin. */
+  private stickySide(): number {
+    const st = this.doc.state;
+    let side = 0;
+    for (const o of st.objects.values()) {
+      if (o.kind !== 'sticky') continue;
+      const pw = st.page(o.page)?.w ?? 0;
+      side = Math.max(side, -o.x, o.x + (o.open ? o.w : 30) - pw);
+    }
+    return side > 0 ? Math.ceil(side + 16) : 0;
   }
 
   drawOpts(page: Page): DrawOpts {
@@ -299,6 +315,12 @@ export class Editor {
     try { localStorage.setItem(`inkwell.view.${this.meta.id}`, JSON.stringify(this.cam)); } catch { /* ignore */ }
   }
 
+  /** The viewport's size changed (e.g. the outline panel opened): refit the page. */
+  relayout() {
+    this.resize();
+    this.fitWidth();
+  }
+
   private resize() {
     const r = this.viewport.getBoundingClientRect();
     this.vw = r.width;
@@ -394,7 +416,8 @@ export class Editor {
   // ------------------------------------------------------------ document changes + persistence
 
   private onChange(ch: Change, logged: LoggedOp[]) {
-    if (ch.layout) this.layoutPages();
+    // A sticky moved into (or out of) the margin changes how much room the pages need.
+    if (ch.layout || (ch.texts.size && this.stickySide() !== this.side)) this.layoutPages();
     for (const [page, r] of ch.dirty) this.pageMap.get(page)?.invalidate(r);
     for (const page of ch.full) this.pageMap.get(page)?.reset();
     this.text.sync(ch.texts);
@@ -681,19 +704,7 @@ export class Editor {
     this.startDraw(e);
   }
 
-  /** One-shot "Highlight next stroke" (toolbar), or a held modifier for this stroke. */
-  highlightNext = false;
-  private altInk = false;
-  /** Called by the pen at stroke start: should this stroke be a highlight? Clears the one-shot. */
-  takeHighlight(): boolean {
-    const yes = this.highlightNext || this.altInk;
-    if (this.highlightNext) { this.highlightNext = false; this.toolbar.renderStrip(); }
-    return yes;
-  }
-
   private startDraw(e: PointerEvent) {
-    // Shift (keyboard) or a pen's barrel button turns this pen stroke into a highlight.
-    this.altInk = e.shiftKey || (e.pointerType === 'pen' && (e.buttons & 2) !== 0);
     this.drawId = e.pointerId;
     this.drawType = e.pointerType;
     this.tool.down(this.sample(e));

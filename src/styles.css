@@ -926,3 +926,45 @@ body.dragging-note, body.dragging-note * { cursor: grabbing !important; -webkit-
 /* The options row never widens the dock: it matches the tool row and scrolls sideways. */
 .dock-opts { width: 0; min-width: 100%; box-sizing: border-box; overflow-x: auto; overscroll-behavior-x: contain; -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent); }
 .dock-opts > :last-child { margin-right: 18px; }
+
+/* Let the options row be a little wider than the tool row before it scrolls. */
+.dock-opts { width: max-content; min-width: 100%; max-width: max(100%, min(640px, calc(100vw - 560px))); }
+
+/* Stickies can stick out into the margin. */
+.page { overflow: visible; }
+
+/* Outline down the left side, Google Docs style: translucent, current section in red. */
+.outline-panel {
+  position: absolute; z-index: 4; left: 12px; top: calc(72px + env(safe-area-inset-top)); bottom: 16px; width: 240px;
+  display: none; flex-direction: column; border-radius: 14px; overflow: hidden;
+  background: rgba(255, 255, 255, 0.62); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.05);
+}
+.outline-panel.open { display: flex; }
+.ol-head { display: flex; align-items: center; gap: 8px; padding: 10px 6px 6px 14px; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.ol-head span { flex: 1; }
+.ol-head small { font-size: 10.5px; font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--muted); background: var(--hover); padding: 2px 6px; border-radius: 6px; margin-right: auto; }
+.ol-list { flex: 1; overflow-y: auto; padding: 2px 6px 12px; display: flex; flex-direction: column; gap: 1px; }
+.outline-panel .ol-item { position: relative; display: block; width: 100%; text-align: left; padding: 6px 10px 6px 14px; border-radius: 8px; font-size: 13.5px; color: var(--text); opacity: 0.78; }
+.outline-panel .ol-item:hover { opacity: 1; background: var(--hover); }
+.outline-panel .ol-item.lvl1 { padding-left: 28px; font-size: 13px; }
+.outline-panel .ol-item.lvl2, .outline-panel .ol-item.lvl3 { padding-left: 42px; font-size: 12.5px; }
+.outline-panel .ol-item.current { opacity: 1; color: #c5221f; font-weight: 600; background: rgba(217, 48, 37, 0.09); }
+.outline-panel .ol-item.current::before { content: ""; position: absolute; left: 4px; top: 7px; bottom: 7px; width: 3px; border-radius: 2px; background: #d93025; }
+.ol-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.outline-btn[hidden] { display: none; }
+.outline-btn.active { color: #c5221f; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .outline-panel { background: rgba(28, 28, 30, 0.62); }
+  :root:not([data-theme="light"]) .outline-panel .ol-item.current { color: #ff8a80; background: rgba(255, 138, 128, 0.12); }
+}
+:root[data-theme="dark"] .outline-panel { background: rgba(28, 28, 30, 0.62); }
+:root[data-theme="dark"] .outline-panel .ol-item.current { color: #ff8a80; background: rgba(255, 138, 128, 0.12); }
+@media (max-width: 720px) { .outline-panel { top: calc(150px + env(safe-area-inset-top)); width: 210px; } }
+
+/* The outline takes its own column on wide screens; the page refits beside it. */
+@media (min-width: 900px) {
+  .editor.has-outline .viewport { left: 264px; }
+  .outline-panel { background: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: none; top: calc(76px + env(safe-area-inset-top)); }
+  .editor.has-outline::before { content: ""; position: absolute; left: 263px; top: 0; bottom: 0; width: 1px; background: var(--line); z-index: 1; }
+}
