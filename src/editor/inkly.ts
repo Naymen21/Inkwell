@@ -3,7 +3,7 @@
 // Claude plan — no API key, nothing billed elsewhere. Outside claude.ai the
 // runtime is absent and the panel explains how to open Inkwell there.
 import type { Op, Page, TextObj } from '../model/types';
-import { renderPageToCanvas } from '../render/draw';
+import { renderBox, renderPageToCanvas } from '../render/draw';
 import { media } from '../render/media';
 import { icons } from '../ui/icons';
 import { esc } from '../ui/modal';
@@ -331,7 +331,8 @@ export class InklyPanel {
     if (p.bg) await media.ready(p.bg);
     for (const o of objs) if (o.kind === 'image') await media.ready(o.media);
     // ~0.6 MP is plenty to read handwriting.
-    const c = renderPageToCanvas(p, objs, Math.sqrt(600_000 / (p.w * p.h)));
+    const box = renderBox(p, objs);
+    const c = renderPageToCanvas(p, objs, Math.sqrt(600_000 / (box.w * box.h)));
     const blob = await new Promise<Blob | null>((r) => c.toBlob(r, 'image/jpeg', 0.8));
     c.width = c.height = 0;
     if (blob) this.pageImages.set(p.id, { sig, blob });

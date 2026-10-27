@@ -76,7 +76,12 @@ export interface Page {
   paper: string;
   /** Media hash of a background image (imported PDF page or image). */
   bg?: string;
+  /** Infinite canvas: one huge sheet with no page edges in practice. */
+  infinite?: boolean;
 }
+
+/** Side of an infinite canvas sheet (pt). Only the visible part is ever drawn. */
+export const CANVAS = 100_000;
 
 export type Op =
   | { t: 'add'; obj: PageObject; index?: number }

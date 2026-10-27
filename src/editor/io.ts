@@ -5,7 +5,7 @@ import type { Clip, NoteMeta, OutlineEntry, Page, Snapshot } from '../model/type
 import { DocState, materialize } from '../model/doc';
 import { db } from '../persist/db';
 import { media } from '../render/media';
-import { renderPageToCanvas } from '../render/draw';
+import { renderBox, renderPageToCanvas } from '../render/draw';
 import { uid } from '../util/ids';
 import { detectHeadings, type TextLine } from './headings';
 import { inClaude, useCapability } from '../util/claude';
@@ -115,11 +115,14 @@ export async function exportPdf(title: string, state: DocState, progress: (d: nu
   for (let i = 0; i < pages.length; i++) {
     progress(i, pages.length);
     const p = pages[i];
-    const orient = p.w > p.h ? 'landscape' : 'portrait';
-    if (!pdf) pdf = new jsPDF({ unit: 'pt', format: [p.w, p.h], orientation: orient, compress: true });
-    else pdf.addPage([p.w, p.h], orient);
-    const c = renderPageToCanvas(p, state.objectsOn(p.id), 2.5, opts.background !== false);
-    pdf.addImage(c, 'JPEG', 0, 0, p.w, p.h, undefined, 'FAST');
+    // An infinite canvas exports just the area that has content.
+    const objs = state.objectsOn(p.id);
+    const { w, h } = renderBox(p, objs);
+    const orient = w > h ? 'landscape' : 'portrait';
+    if (!pdf) pdf = new jsPDF({ unit: 'pt', format: [w, h], orientation: orient, compress: true });
+    else pdf.addPage([w, h], orient);
+    const c = renderPageToCanvas(p, objs, Math.min(2.5, 6000 / Math.max(w, h)), opts.background !== false);
+    pdf.addImage(c, 'JPEG', 0, 0, w, h, undefined, 'FAST');
     c.width = c.height = 0;
     await new Promise((r) => setTimeout(r));
   }

@@ -1,7 +1,7 @@
 // Library: folders → subfolders → notes, search, import, trash.
 import type { Folder, NoteMeta } from '../model/types';
 import { db } from '../persist/db';
-import { createNote } from '../editor/editor';
+import { canvasPage, createNote } from '../editor/editor';
 import { exportNoteFile, importNoteFile, pdfToPages, safeName, saveBlob } from '../editor/io';
 import { icons } from '../ui/icons';
 import { busy, confirmBox, esc, menu, promptText, toast } from '../ui/modal';
@@ -243,6 +243,12 @@ export async function renderLibrary(mount: HTMLElement, open: (id: string) => vo
       action: () => { state.sort = s; localStorage.setItem('inkwell.sort', s); drawGrid(); },
     });
     menu([
+      { label: 'New infinite canvas', icon: icons.plus, action: async () => {
+        try {
+          const n = await createNote(currentFolder(), 'Untitled canvas', [canvasPage()]);
+          open(n.id);
+        } catch (e) { storageFailed(e); }
+      } },
       { label: 'Import PDF or note…', icon: icons.upload, action: () => importFlow() },
       null,
       sortItem('modified', 'Sort by date modified'),

@@ -2,11 +2,11 @@
 // persistence wiring and audio. Tools and UI hang off it.
 import { Change, DocState, NoteDocument, objBounds, opOrder, applyOp } from '../model/doc';
 import type { LoggedOp, NoteMeta, Op, OutlineEntry, Page, PageObject, Snapshot, StickyObj, TextObj } from '../model/types';
-import { PAGE_SIZES } from '../model/types';
+import { CANVAS, PAGE_SIZES } from '../model/types';
 import type { Sample } from '../ink/stroke';
 import { db } from '../persist/db';
 import { PageView } from '../render/pageView';
-import { isDark, renderPageToCanvas, type DrawOpts } from '../render/draw';
+import { isDark, renderBox, renderPageToCanvas, type DrawOpts } from '../render/draw';
 import { media, decode } from '../render/media';
 import { inRect, intersects, type Pt, type Rect } from '../util/geom';
 import { deviceId, uid } from '../util/ids';
@@ -16,7 +16,7 @@ import { settings, saveSettings, type ToolName } from './settings';
 import { TextLayer } from './textLayer';
 import { Tables } from './tableCtl';
 import { tableText } from './table';
-import { EraserTool, InkTool, LassoTool, OBJECTS_MARKER, TextTool, hitObject, type Tool } from './tools';
+import { EraserTool, InkTool, LassoTool, NO_XF, OBJECTS_MARKER, TextTool, hitObject, xfObj, type Tool } from './tools';
 import { Toolbar } from './toolbar';
 
 const GAP = 12;
@@ -29,8 +29,14 @@ type Gesture =
   | { kind: 'pan'; id: number; x: number; y: number; vx: number; vy: number; t: number }
   | { kind: 'pinch'; d0: number; cx: number; cy: number; z0: number; tx0: number; ty0: number };
 
+/** The single sheet of a new infinite canvas. */
+export function canvasPage(): Page {
+  return { id: uid(), w: CANVAS, h: CANVAS, template: settings.paper.template, paper: settings.paper.color, infinite: true };
+}
+
 export function newPage(after?: Page): Page {
   const size = PAGE_SIZES[settings.paper.size];
+  if (after?.infinite) after = undefined;
   return {
     id: uid(), w: after && !after.bg ? after.w : size.w, h: after && !after.bg ? after.h : size.h,
     template: after && !after.bg ? after.template : settings.paper.template,
@@ -256,9 +262,14 @@ export class Editor {
 
   // ------------------------------------------------------------ camera
 
+  /** True when this note is an infinite canvas. */
+  get infinite() { return !!this.doc.state.pages[0]?.infinite; }
+  /** An infinite canvas can zoom much further out to see the big picture. */
+  private get minZ() { return this.infinite ? 0.05 : MIN_Z; }
+
   private clampCam() {
     const c = this.cam;
-    c.z = Math.min(MAX_Z, Math.max(MIN_Z, c.z));
+    c.z = Math.min(MAX_Z, Math.max(this.minZ, c.z));
     const W = this.docW * c.z, H = this.docH * c.z;
     c.tx = W <= this.vw ? (this.vw - W) / 2 : Math.min(24, Math.max(this.vw - W - 24, c.tx));
     c.ty = Math.min(TOP, Math.max(Math.min(TOP, this.vh - H - 24), c.ty));
@@ -279,7 +290,7 @@ export class Editor {
 
   zoomAt(sx: number, sy: number, factor: number) {
     const c = this.cam;
-    const z = Math.min(MAX_Z, Math.max(MIN_Z, c.z * factor));
+    const z = Math.min(MAX_Z, Math.max(this.minZ, c.z * factor));
     c.tx = sx - ((sx - c.tx) * z) / c.z;
     c.ty = sy - ((sy - c.ty) * z) / c.z;
     c.z = z;
@@ -287,6 +298,7 @@ export class Editor {
   }
 
   fitWidth() {
+    if (this.infinite) { this.centerCanvas(); return; }
     // Paper runs edge to edge (like Notability) unless the window is very wide.
     const side = this.vw > 1400 ? 64 : 0;
     const z = Math.min(2.4, Math.max(MIN_Z, (this.vw - 2 * side) / this.docW));
@@ -325,6 +337,52 @@ export class Editor {
   /** The viewport's size changed (e.g. the outline panel opened): refit the page. */
   relayout() {
     this.resize();
+    if (this.infinite) this.applyCam();
+    else this.fitWidth();
+  }
+
+  /** Infinite canvas: show everything written so far (or the middle of an empty canvas). */
+  centerCanvas() {
+    const pv = this.pages[0];
+    if (!pv) return;
+    const box = renderBox(pv.page, this.doc.state.objectsOn(pv.page.id));
+    const z = Math.min(1.25, Math.max(this.minZ, Math.min(this.vw / (box.w + 80), (this.vh - TOP) / (box.h + 80))));
+    this.cam.z = z;
+    this.cam.tx = this.vw / 2 - (pv.x + box.x + box.w / 2) * z;
+    this.cam.ty = TOP + (this.vh - TOP) / 2 - (pv.y + box.y + box.h / 2) * z;
+    this.renderZ = z;
+    this.applyCam();
+  }
+
+  /**
+   * Turn a one-page note into an infinite canvas (its page sits in the middle)
+   * or back into a page sized to fit what's on it. Content moves, so undo
+   * history starts over.
+   */
+  setInfinite(on: boolean) {
+    const st = this.doc.state;
+    const p = st.pages[0];
+    if (!p || !!p.infinite === on) return;
+    if (on && (st.pages.length !== 1 || p.bg)) { toast('Only a one-page note without a PDF can become an infinite canvas', 4500); return; }
+    const objs = st.objectsOn(p.id);
+    let dx: number, dy: number, w: number, h: number;
+    if (on) {
+      w = h = CANVAS;
+      dx = Math.round(CANVAS / 2 - p.w / 2);
+      dy = Math.round(CANVAS / 2 - p.h / 2);
+    } else {
+      const size = PAGE_SIZES[settings.paper.size];
+      const box = renderBox(p, objs);
+      w = Math.max(size.w, Math.ceil(box.w));
+      h = Math.max(size.h, Math.ceil(box.h));
+      dx = Math.round(-box.x);
+      dy = Math.round(-box.y);
+    }
+    const ops: Op[] = [{ t: 'updatePage', id: p.id, patch: { w, h, infinite: on } }];
+    for (const o of objs) ops.push({ t: 'update', id: o.id, patch: xfObj(o, { ...NO_XF, dx, dy }) });
+    this.doc.commit(ops);
+    this.doc.clearHistory();
+    this.cam.ty = 0;
     this.fitWidth();
   }
 
@@ -446,7 +504,7 @@ export class Editor {
   commitContent(ops: Op[], pageId: string) {
     const st = this.doc.state;
     const last = st.pages[st.pages.length - 1];
-    if (last?.id === pageId) ops = [...ops, { t: 'addPage', page: newPage(last), after: last.id }];
+    if (last?.id === pageId && !last.infinite) ops = [...ops, { t: 'addPage', page: newPage(last), after: last.id }];
     this.doc.commit(ops);
   }
 
@@ -480,7 +538,8 @@ export class Editor {
       const p = this.doc.state.pages[0];
       if (p) {
         try {
-          const c = renderPageToCanvas(p, this.doc.state.objectsOn(p.id), 300 / p.w);
+          const objs = this.doc.state.objectsOn(p.id);
+          const c = renderPageToCanvas(p, objs, 300 / renderBox(p, objs).w);
           m.thumb = c.toDataURL('image/jpeg', 0.8);
           c.width = c.height = 0;
         } catch (e) { console.warn('thumbnail failed', e); }
@@ -843,7 +902,7 @@ export class Editor {
     }
     const d = Math.hypot(b.x - a.x, b.y - a.y);
     const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
-    const z = Math.min(MAX_Z, Math.max(MIN_Z, (g.z0 * d) / g.d0));
+    const z = Math.min(MAX_Z, Math.max(this.minZ, (g.z0 * d) / g.d0));
     // Keep the world point that was under the pinch center under the fingers.
     const wx = (g.cx - g.tx0) / g.z0, wy = (g.cy - g.ty0) / g.z0;
     this.cam.z = z;

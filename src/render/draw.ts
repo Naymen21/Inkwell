@@ -1,7 +1,7 @@
 // Canvas drawing of paper and objects, in page coordinates. Used by the page
 // canvases, the live overlay, thumbnails and PDF export alike.
 import type { Rect } from '../util/geom';
-import { intersects } from '../util/geom';
+import { intersects, union } from '../util/geom';
 import { objBounds } from '../model/doc';
 import type { FontKind, Page, PageObject, StickyObj, StrokeObj, TextObj, TableObj } from '../model/types';
 import { buildCenterline, buildPen, fromFlat, type InkPoint } from '../ink/stroke';
@@ -245,14 +245,28 @@ export function drawSticky(ctx: CanvasRenderingContext2D, o: StickyObj) {
 }
 
 /** Render a whole page into a fresh canvas (thumbnails, export). */
+/**
+ * The part of a page worth showing as a picture: the whole page, or for an
+ * infinite canvas the area that has something on it (plus a margin).
+ */
+export function renderBox(page: Page, objs: PageObject[]): Rect {
+  if (!page.infinite) return { x: 0, y: 0, w: page.w, h: page.h };
+  let b: Rect | null = null;
+  for (const o of objs) b = union(b, objBounds(o));
+  const cx = b ? b.x + b.w / 2 : page.w / 2, cy = b ? b.y + b.h / 2 : page.h / 2;
+  const w = Math.max(612, (b?.w ?? 0) + 96), h = Math.max(400, (b?.h ?? 0) + 96);
+  return { x: cx - w / 2, y: cy - h / 2, w, h };
+}
+
+/** `scale` is device px per pt of the rendered box (see renderBox). */
 export function renderPageToCanvas(page: Page, objs: PageObject[], scale: number, background = true): HTMLCanvasElement {
+  const box = renderBox(page, objs);
   const c = document.createElement('canvas');
-  c.width = Math.max(1, Math.round(page.w * scale));
-  c.height = Math.max(1, Math.round(page.h * scale));
+  c.width = Math.max(1, Math.round(box.w * scale));
+  c.height = Math.max(1, Math.round(box.h * scale));
   const ctx = c.getContext('2d')!;
-  ctx.setTransform(scale, 0, 0, scale, 0, 0);
-  const all = { x: 0, y: 0, w: page.w, h: page.h };
-  drawPaper(ctx, background ? page : { ...page, template: 'blank', paper: '#ffffff' }, all, scale);
-  drawObjects(ctx, objs, null, { text: true, darkPaper: isDark(page.paper) });
+  ctx.setTransform(scale, 0, 0, scale, -box.x * scale, -box.y * scale);
+  drawPaper(ctx, background ? page : { ...page, template: 'blank', paper: '#ffffff' }, box, scale);
+  drawObjects(ctx, objs, page.infinite ? box : null, { text: true, darkPaper: isDark(page.paper) });
   return c;
 }

@@ -5,7 +5,7 @@ import type { Op, Template } from '../model/types';
 import { icons } from '../ui/icons';
 import { busy, confirmBox, esc, menu, sheet, toast } from '../ui/modal';
 import { openSettings } from '../ui/settingsPanel';
-import { renderPageToCanvas } from '../render/draw';
+import { renderBox, renderPageToCanvas } from '../render/draw';
 import type { Editor } from './editor';
 import { newPage } from './editor';
 import { exportNoteFile, exportPdf, pdfToPages, safeName, saveBlob } from './io';
@@ -712,7 +712,7 @@ export class Toolbar {
       const item = h('div', `pp-item${p.id === cur ? ' on' : ''}`);
       item.dataset.page = p.id;
       const frame = h('div', 'pp-thumb');
-      frame.append(renderPageToCanvas(p, st.objectsOn(p.id), 260 / p.w));
+      frame.append(renderPageToCanvas(p, st.objectsOn(p.id), 260 / renderBox(p, st.objectsOn(p.id)).w));
       const more = this.btn(icons.more, `Page ${i + 1} options`, (b) => {
         menu([
           { label: 'Insert page after', icon: icons.plus, action: () => ed.doc.commit([{ t: 'addPage', page: newPage(p), after: p.id }]) },
@@ -736,6 +736,7 @@ export class Toolbar {
   // ---------------------------------------------------------------- page badge
 
   showPageBadge() {
+    if (this.ed.infinite) return;
     const ed = this.ed;
     if (!ed.pages.length) return;
     const curPv = ed.currentPage();
@@ -941,6 +942,20 @@ export class Toolbar {
         }
         g.append(row, h('div', 'set-sub', 'Color'), crow);
         body.append(g);
+        // Infinite canvas: no page edges, pan and zoom anywhere.
+        const st = ed.doc.state;
+        const can = ed.infinite || (st.pages.length === 1 && !st.pages[0].bg);
+        const inf = h('div', 'set-group');
+        const lab = h('label', 'set-row');
+        lab.innerHTML = `<span class="set-text"><span class="set-label">Infinite canvas</span><span class="set-desc">${can ? 'No page edges — pan and zoom out as far as you like.' : 'Available for one-page notes without a PDF.'}</span></span>`;
+        const sw = h('input', 'switch') as HTMLInputElement;
+        sw.type = 'checkbox';
+        sw.checked = ed.infinite;
+        sw.disabled = !can;
+        sw.onchange = () => { ed.setInfinite(sw.checked); render(); };
+        lab.append(sw);
+        inf.append(lab);
+        body.append(h('div', 'set-caption', 'Layout'), inf);
       };
       render();
     }, undefined, 'sheet-md');

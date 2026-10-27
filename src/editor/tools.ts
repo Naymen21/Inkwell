@@ -247,7 +247,7 @@ function mapObj<T extends PageObject>(o: T, fx: (x: number) => number, fy: (y: n
 
 /** A selection transform: scale and rotate about a pivot, then translate. */
 interface Xf { px: number; py: number; s: number; a: number; dx: number; dy: number }
-const NO_XF: Xf = { px: 0, py: 0, s: 1, a: 0, dx: 0, dy: 0 };
+export const NO_XF: Xf = { px: 0, py: 0, s: 1, a: 0, dx: 0, dy: 0 };
 
 function applyXf(t: Xf, x: number, y: number): Pt {
   const c = Math.cos(t.a) * t.s, si = Math.sin(t.a) * t.s;
