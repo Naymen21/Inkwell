@@ -52,5 +52,17 @@ export const icons = {
   inkly: '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 4.2c2.9 3.6 5.2 6.6 5.2 9.4a5.2 5.2 0 01-10.4 0c0-2.8 2.3-5.8 5.2-9.4z" fill="#fff"/><path d="M12 10.6l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z" fill="var(--brand, #3b36c4)"/><path d="M18.6 3.2l.45 1.15 1.15.45-1.15.45-.45 1.15-.45-1.15-1.15-.45 1.15-.45z" fill="#ffc83d"/></svg>',
   spark: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1L5 10.5l5.1-1.9z" fill="#ffc83d"/></svg>',
   send: svg('<path d="M12 19V5"/><path d="M6 11l6-6 6 6"/>'),
+  // Notability-style tools: drawn objects rather than generic glyphs.
+  nbPen: svg('<path d="M15.2 3.6l5.2 5.2-9.9 9.9-5.2-5.2z"/><path d="M13.2 5.6l5.2 5.2"/><path d="M5.3 13.5l-1.6 6.8 6.8-1.6z" fill="currentColor"/>'),
+  nbHighlighter: svg('<path d="M16 3.2l4.8 4.8-8.6 8.6-4.8-4.8z"/><path d="M7.4 11.8L5 16.6l2.4 2.4 4.8-2.4"/><path d="M5 16.6l-1.8 3.6 3.6-1.8"/>'),
+  nbEraser: svg('<path d="M14.2 3.8l6 6-9.4 9.4H6.6l-3-3a1.6 1.6 0 010-2.2z"/><path d="M8.6 9.4l6 6"/><path d="M10.8 19.2h9.4"/>'),
+  nbText: '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><text x="2.2" y="18.2" font-family="Georgia, \'Times New Roman\', serif" font-style="italic" font-weight="700" font-size="17" fill="none" stroke="currentColor" stroke-width="1.15">Tt</text></svg>',
+  nbSelect: svg('<rect x="5" y="5" width="14" height="14" stroke-dasharray="2.2 2.6"/><circle cx="5" cy="5" r="1.7" fill="var(--panel, #fff)"/><circle cx="19" cy="5" r="1.7" fill="var(--panel, #fff)"/><circle cx="5" cy="19" r="1.7" fill="var(--panel, #fff)"/><circle cx="19" cy="19" r="1.7" fill="var(--panel, #fff)"/>'),
+  nbShape: svg('<circle cx="8.5" cy="8.5" r="4.8"/><path d="M13 20.5l4.2-7.6 4.3 7.6z"/>'),
+  nbHand: svg('<path d="M9.2 12.2V4.8a1.6 1.6 0 013.2 0v6"/><path d="M12.4 10.4V9a1.6 1.6 0 013.2 0v2"/><path d="M15.6 10.8a1.6 1.6 0 013.2 0v4.4c0 3.4-2.5 6.2-5.8 6.2-2.4 0-4-1.1-5.3-3.2l-2.4-3.8a1.5 1.5 0 012.5-1.7l2 2.6"/>'),
+  nbBack: svg('<path d="M19.5 12H4.5"/><path d="M10.5 6l-6 6 6 6"/>'),
+  nbMore: svg('<circle cx="12" cy="12" r="9"/><circle cx="8" cy="12" r="1.1" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.1" fill="currentColor" stroke="none"/><circle cx="16" cy="12" r="1.1" fill="currentColor" stroke="none"/>'),
+  nbPages: svg('<rect x="8.5" y="3" width="11" height="14.5" rx="2.6"/><path d="M5 7v10.6A3.4 3.4 0 008.4 21H15"/>'),
+  nbNotes: svg('<rect x="5" y="3" width="13" height="18" rx="2"/><path d="M8.5 3v18"/><path d="M15.5 9.5l3.6-3.6 1.5 1.5L17 11l-2 .5z"/>'),
   sort: svg('<path d="M7 4v16M3 16l4 4 4-4"/><path d="M17 20V4M13 8l4-4 4 4"/>'),
 };

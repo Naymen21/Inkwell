@@ -23,12 +23,12 @@ const h = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', html = '') =
 };
 
 const TOOLS: { name: ToolName; icon: string; label: string }[] = [
-  { name: 'pen', icon: icons.pen, label: 'Pen (P)' },
-  { name: 'highlighter', icon: icons.highlighter, label: 'Highlighter (H)' },
-  { name: 'eraser', icon: icons.eraser, label: 'Eraser (E)' },
-  { name: 'text', icon: icons.textT, label: 'Text (T)' },
-  { name: 'lasso', icon: icons.select, label: 'Select (L)' },
-  { name: 'shape', icon: icons.shape, label: 'Shapes (S)' },
+  { name: 'pen', icon: icons.nbPen, label: 'Pen (P)' },
+  { name: 'shape', icon: icons.nbShape, label: 'Shapes (S)' },
+  { name: 'highlighter', icon: icons.nbHighlighter, label: 'Highlighter (H)' },
+  { name: 'eraser', icon: icons.nbEraser, label: 'Eraser (E)' },
+  { name: 'text', icon: icons.nbText, label: 'Text (T)' },
+  { name: 'lasso', icon: icons.nbSelect, label: 'Select (L)' },
 ];
 
 const ERASER_SIZES = [10, 18, 32];
@@ -104,7 +104,7 @@ export class Toolbar {
   private buildChrome() {
     const ed = this.ed;
     const left = h('div', 'float-left');
-    left.append(this.btn(icons.back, 'Library', () => ed.onExit(), 'icon-btn glass round'));
+    left.append(this.btn(icons.nbBack, 'Library', () => ed.onExit(), 'icon-btn nb-tile'));
     const title = h('input', 'title-input');
     title.value = ed.meta.title;
     title.setAttribute('aria-label', 'Note title');
@@ -120,13 +120,13 @@ export class Toolbar {
     }
     tools.append(this.btn(icons.insert, 'Insert', (b) => this.insertMenu(b), 'icon-btn tool-btn'));
     this.recBtn = this.btn(icons.mic, 'Record audio', () => ed.toggleRecord(), 'icon-btn tool-btn rec-btn');
-    this.handBtn = this.btn(icons.hand, 'Draw with finger', () => {
+    this.handBtn = this.btn(icons.nbHand, 'Draw with finger', () => {
       settings.fingerDraw = !settings.fingerDraw;
       saveSettings();
       toast(settings.fingerDraw ? 'Finger drawing on — two fingers scroll' : 'Finger drawing off — fingers scroll, palm is ignored');
       this.update();
     }, 'icon-btn tool-btn');
-    const collapse = this.btn(icons.chevronDown, 'Hide options', () => {
+    const collapse = this.btn(icons.chevronRight, 'Hide options', () => {
       const c = this.dock.classList.toggle('collapsed');
       collapse.setAttribute('aria-label', c ? 'Show options' : 'Hide options');
       collapse.title = c ? 'Show options' : 'Hide options';
@@ -138,8 +138,8 @@ export class Toolbar {
     const right = h('div', 'float-right glass');
     this.undoBtn = this.btn(icons.undo, 'Undo', () => ed.doc.undo());
     this.redoBtn = this.btn(icons.redo, 'Redo', () => ed.doc.redo());
-    this.pagesBtn = this.btn(icons.pages, 'Pages', () => this.togglePages());
-    right.append(this.undoBtn, this.redoBtn, this.btn(icons.more, 'More', (b) => this.moreMenu(b)), this.pagesBtn);
+    this.pagesBtn = this.btn(icons.nbPages, 'Pages', () => this.togglePages());
+    right.append(this.undoBtn, this.redoBtn, this.btn(icons.nbMore, 'More', (b) => this.moreMenu(b)), this.pagesBtn);
     const ask = h('button', 'ask-inkly', `<span class="inkly-avatar xs">${icons.inkly}</span><span>Ask Inkly</span>`);
     ask.setAttribute('aria-label', 'Ask Inkly, your AI study assistant');
     ask.onclick = () => { this.togglePages(false); this.inkly.toggle(); };
@@ -189,13 +189,14 @@ export class Toolbar {
     }
     const save = () => { saveSettings(); this.update(); };
     if (tool === 'pen' || tool === 'shape') {
-      this.sizes(s, settings.penWidths, settings.pen.width, (w) => { settings.pen.width = w; save(); });
-      s.append(h('span', 'vsep'));
+      // Notability order: colors, then sizes.
       this.colors(s, PEN_COLORS, settings.pen.color, (c) => { settings.pen.color = c; save(); });
-    } else if (tool === 'highlighter') {
-      this.sizes(s, settings.hlWidths, settings.highlighter.width, (w) => { settings.highlighter.width = w; save(); });
       s.append(h('span', 'vsep'));
+      this.sizes(s, settings.penWidths, settings.pen.width, (w) => { settings.pen.width = w; save(); });
+    } else if (tool === 'highlighter') {
       this.colors(s, HL_COLORS, settings.highlighter.color, (c) => { settings.highlighter.color = c; save(); });
+      s.append(h('span', 'vsep'));
+      this.sizes(s, settings.hlWidths, settings.highlighter.width, (w) => { settings.highlighter.width = w; save(); });
     } else if (tool === 'eraser') {
       this.sizes(s, ERASER_SIZES, settings.eraser.size, (w) => { settings.eraser.size = w; save(); });
       s.append(h('span', 'vsep'));

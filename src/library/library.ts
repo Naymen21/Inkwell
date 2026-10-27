@@ -72,7 +72,7 @@ export async function renderLibrary(mount: HTMLElement, open: (id: string) => vo
   const sub = h('div', 'lib-sub');
   const heading = h('div', 'lib-heading');
   heading.append(title, sub);
-  const moreBtn = h('button', 'icon-btn soft', icons.more);
+  const moreBtn = h('button', 'icon-btn', icons.nbMore);
   moreBtn.setAttribute('aria-label', 'Sort and import');
   moreBtn.onclick = () => libMenu(moreBtn);
   const newBtn = h('button', 'new-btn', `${icons.plus}<span>New</span>`);
@@ -117,7 +117,7 @@ export async function renderLibrary(mount: HTMLElement, open: (id: string) => vo
       b.onclick = () => setFilter(f);
       return b;
     };
-    nav.append(item('all', icons.notes, 'Notes', live().length));
+    nav.append(item('all', icons.nbNotes, 'Notes', live().length));
     nav.append(item('unfiled', icons.inbox, 'Unfiled', live().filter((n) => !n.folder || !folders.some((f) => f.id === n.folder)).length));
 
     const head = h('div', 'nav-head', '<span>Folders</span>');
@@ -137,16 +137,19 @@ export async function renderLibrary(mount: HTMLElement, open: (id: string) => vo
       const dot = `<span class="f-dot" style="--f:${colorOf(d)}"></span>`;
       const row = item(d.id, dot, d.name, countIn(d.id), 'folder-item');
       const children = subs(d.id);
-      const caret = h('span', `caret${state.collapsed.has(d.id) ? '' : ' open'}`, icons.chevronRight);
-      caret.onclick = (e) => {
-        e.stopPropagation();
-        state.collapsed.has(d.id) ? state.collapsed.delete(d.id) : state.collapsed.add(d.id);
-        drawSide();
-      };
-      row.prepend(caret);
       const more = h('span', 'ni-more', icons.more);
       more.onclick = (e) => { e.stopPropagation(); folderMenu(d, more); };
       row.append(more);
+      // Disclosure chevron on the right, as in Notability.
+      if (children.length) {
+        const caret = h('span', `caret${state.collapsed.has(d.id) ? '' : ' open'}`, icons.chevronRight);
+        caret.onclick = (e) => {
+          e.stopPropagation();
+          state.collapsed.has(d.id) ? state.collapsed.delete(d.id) : state.collapsed.add(d.id);
+          drawSide();
+        };
+        row.append(caret);
+      }
       nav.append(row);
       if (!state.collapsed.has(d.id)) {
         for (const s of children) {
@@ -251,7 +254,7 @@ export async function renderLibrary(mount: HTMLElement, open: (id: string) => vo
       const date = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: d.getFullYear() === new Date().getFullYear() ? undefined : 'numeric' });
       const fo = folderOf(n.folder);
       const tag = fo && f !== n.folder ? `<span class="tag" style="--f:${colorOf(fo)}">${esc(fo.name)}</span>` : '';
-      meta.innerHTML = `<div class="card-title">${esc(n.title)}</div><div class="card-sub">${esc(date)}${tag}</div>`;
+      meta.innerHTML = `<div class="card-title">${esc(n.title)}</div><div class="card-sub"><span>${esc(date)}</span>${tag}</div>`;
       const more = h('button', 'icon-btn card-more', icons.more);
       more.setAttribute('aria-label', `Options for ${n.title}`);
       more.onclick = (e) => { e.stopPropagation(); noteMenu(n, more); };
