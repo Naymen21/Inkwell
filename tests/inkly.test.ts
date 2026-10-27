@@ -53,6 +53,25 @@ describe('api/inkly', () => {
     expect(body.contents[2].parts).toEqual([{ text: 'q2' }, { inline_data: { mime_type: 'image/jpeg', data: 'aGVsbG8=' } }]);
   });
 
+  it('falls back to another model when one is overloaded', async () => {
+    env.GEMINI_API_KEY = 'k';
+    const urls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      urls.push(url);
+      return urls.length === 1 ? new Response('busy', { status: 503 }) : sse([chunk('ok')]);
+    }));
+    const r = await post({ turns: [{ role: 'user', content: 'hi' }] });
+    expect(r.status).toBe(200);
+    expect(urls).toHaveLength(2);
+    expect(r.headers.get('x-inkly-model')).not.toBe('gemini-flash-latest');
+  });
+
+  it('reports busy when every model is overloaded', async () => {
+    env.GEMINI_API_KEY = 'k';
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('busy', { status: 503 })));
+    expect(await (await post({ turns: [{ role: 'user', content: 'hi' }] })).json()).toMatchObject({ code: 'busy' });
+  });
+
   it('maps Gemini quota errors to rate_limited', async () => {
     env.GEMINI_API_KEY = 'k';
     vi.stubGlobal('fetch', vi.fn(async () => new Response('quota', { status: 429 })));

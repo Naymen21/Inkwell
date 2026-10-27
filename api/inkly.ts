@@ -48,19 +48,27 @@ export async function POST(req: Request) {
     if (typeof data === 'string' && /^[A-Za-z0-9+/=]+$/.test(data)) lastUser.parts.push({ inline_data: { mime_type: 'image/jpeg', data } });
   }
 
-  const model = env('INKLY_MODEL') || 'gemini-flash-latest';
-  const upstream = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
-    body: JSON.stringify({ contents, generationConfig: { temperature: 0.4, maxOutputTokens: 8192 } }),
-    signal: req.signal,
-  }).catch(() => null);
-
-  if (!upstream) return json({ code: 'upstream_error', message: 'Could not reach Gemini' }, 502);
-  if (!upstream.ok || !upstream.body) {
-    const code = upstream.status === 429 ? 'rate_limited' : upstream.status === 400 ? 'invalid_request' : upstream.status === 403 ? 'not_configured' : 'upstream_error';
-    const detail = await upstream.text().catch(() => '');
-    return json({ code, message: detail.slice(0, 300) }, upstream.status === 429 ? 429 : 502);
+  // Free-tier models get overloaded at times; fall through to the next one
+  // when a model is busy (503), out of quota (429) or not offered (404).
+  const configured = env('INKLY_MODEL');
+  const models = configured ? [configured] : ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-flash-lite-latest', 'gemini-2.5-flash-lite'];
+  const body2 = JSON.stringify({ contents, generationConfig: { temperature: 0.4, maxOutputTokens: 8192 } });
+  let last: { status: number; detail: string } = { status: 502, detail: 'Could not reach Gemini' };
+  for (const model of models) {
+    const upstream = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
+      body: body2,
+      signal: req.signal,
+    }).catch(() => null);
+    if (upstream?.ok && upstream.body) {
+      return new Response(upstream.body, { headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-store', 'x-inkly-model': model } });
+    }
+    if (!upstream) continue;
+    last = { status: upstream.status, detail: await upstream.text().catch(() => '') };
+    if (![404, 429, 500, 503].includes(upstream.status)) break; // a real error: don't mask it
   }
-  return new Response(upstream.body, { headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-store' } });
+  const s = last.status;
+  const code = s === 429 ? 'rate_limited' : s === 503 ? 'busy' : s === 400 ? 'invalid_request' : s === 401 || s === 403 ? 'not_configured' : 'upstream_error';
+  return json({ code, message: last.detail.slice(0, 300) }, s === 429 ? 429 : 502);
 }

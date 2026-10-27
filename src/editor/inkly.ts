@@ -62,6 +62,7 @@ const ACTIONS: { id: string; label: string; scope: 'page' | 'note'; prompt: stri
 const ERRORS: Record<string, string> = {
   not_granted: 'Inkly needs your OK to use Claude. Reload and choose Allow when asked.',
   passcode: 'This Inkly needs a passcode. Enter it below.',
+  busy: 'The free AI is busy right now. Try again in a minute.',
   not_configured: 'Inkly’s AI key is missing or invalid on the server.',
   sampling_disabled: 'Claude isn’t available on this account.',
   rate_limited: 'You’ve hit your Claude usage limit for now. Try again a bit later.',
