@@ -3,6 +3,8 @@
 // claude.ai `sample` capability so the panel doesn't care which one it has.
 
 type Role = 'user' | 'assistant';
+/** Page pictures per question (the function accepts the same). */
+const MAX_IMAGES = 100;
 type Opts = { signal?: AbortSignal; images?: Blob[]; onText?: (u: { text: string; delta: string }) => void; cache?: boolean; speed?: 'fast' | 'quality'; timing?: unknown };
 
 export interface InklyBackend {
@@ -33,7 +35,7 @@ export async function serverBackend(): Promise<InklyBackend | null> {
   if (!info.ok) return null;
 
   const fn = (async (input, opts = {}) => {
-    const images = await Promise.all((opts.images ?? []).slice(0, 8).map(toBase64));
+    const images = await Promise.all((opts.images ?? []).slice(0, MAX_IMAGES).map(toBase64));
     let text = '';
     let res: Response;
     try {
@@ -81,7 +83,7 @@ export async function serverBackend(): Promise<InklyBackend | null> {
     if (!text.trim()) throw { code: 'empty_completion' };
     return { text, truncated };
   }) as InklyBackend;
-  fn.limits = async () => ({ maxPromptBytes: 200_000, images: { maxCount: 8 } });
+  fn.limits = async () => ({ maxPromptBytes: 200_000, images: { maxCount: MAX_IMAGES } });
   fn.provider = info.provider ?? 'Gemini';
   return fn;
 }

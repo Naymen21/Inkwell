@@ -321,32 +321,45 @@ export class InklyPanel {
   private pageImages = new Map<string, { sig: string; blob: Blob }>();
   private onStatus: ((s: string) => void) | null = null;
 
+  /**
+   * Pixels per page picture: ~0.6 MP reads handwriting comfortably; long notes
+   * get smaller pictures (never below 0.4 MP) so a whole note stays one quick upload.
+   */
+  private static pixelsFor(count: number) {
+    return count <= 8 ? 600_000 : Math.max(400_000, Math.round((600_000 * 8) / count / 10_000) * 10_000);
+  }
+
   /** One page as a small JPEG for the AI, cached until the page changes. */
-  private async pageImage(p: Page): Promise<Blob | null> {
+  private async pageImage(p: Page, pixels = 600_000): Promise<Blob | null> {
     const objs = this.ed.doc.state.objectsOn(p.id);
     // Objects are replaced (never mutated) on change, so their identities describe the page.
     const sig = `${p.bg ?? ''}|${p.template}|${p.paper}|${objs.map((o) => objectKey(o)).join(',')}`;
-    const hit = this.pageImages.get(p.id);
+    const key = `${p.id}@${pixels}`;
+    const hit = this.pageImages.get(key);
     if (hit && hit.sig === sig) return hit.blob;
     if (p.bg) await media.ready(p.bg);
     for (const o of objs) if (o.kind === 'image') await media.ready(o.media);
-    // ~0.6 MP is plenty to read handwriting.
     const box = renderBox(p, objs);
-    const c = renderPageToCanvas(p, objs, Math.sqrt(600_000 / (box.w * box.h)));
+    const c = renderPageToCanvas(p, objs, Math.sqrt(pixels / (box.w * box.h)));
     const blob = await new Promise<Blob | null>((r) => c.toBlob(r, 'image/jpeg', 0.8));
     c.width = c.height = 0;
-    if (blob) this.pageImages.set(p.id, { sig, blob });
+    if (blob) this.pageImages.set(key, { sig, blob });
     return blob;
   }
 
   /** Render page pictures in idle time after the panel opens, so asking doesn't wait for it. */
   private prewarm() {
     const st = this.ed.doc.state;
-    const visual = this.scopePages('note').filter((p) => p.bg || st.objectsOn(p.id).some((o) => o.kind !== 'text')).slice(0, 8);
+    const all = this.scopePages('note').filter((p) => p.bg || st.objectsOn(p.id).some((o) => o.kind !== 'text'));
+    // Pictures for the first pages, at the size a whole-note question will use.
+    const visual = all.slice(0, 12), px = InklyPanel.pixelsFor(all.length);
+    // The current page first, at full size: "This page" is the default question scope.
+    const cur = this.ed.currentPage().page;
+    if (all.includes(cur)) this.pageImage(cur);
     const idle = (fn: () => void) => ('requestIdleCallback' in window ? (window as unknown as { requestIdleCallback(f: () => void, o: object): void }).requestIdleCallback(fn, { timeout: 1500 }) : setTimeout(fn, 200));
     const next = (i: number) => {
       if (i >= visual.length || this.busy) return;
-      idle(() => { this.pageImage(visual[i]).finally(() => next(i + 1)); });
+      idle(() => { this.pageImage(visual[i], px).finally(() => next(i + 1)); });
     };
     next(0);
   }
@@ -363,12 +376,13 @@ export class InklyPanel {
     // Only pages with handwriting, images or a PDF need a picture; typed text is sent as text.
     const visual = pages.filter((p) => p.bg || st.objectsOn(p.id).some((o) => o.kind !== 'text'));
     const imgPages = visual.slice(0, maxImages);
+    const px = InklyPanel.pixelsFor(imgPages.length);
     if (visual.length > imgPages.length) parts.push(`(Only the first ${imgPages.length} of ${visual.length} handwritten pages are attached as images.)`);
     if (!pages.length) parts.push('(The note is empty so far.)');
     const images: Blob[] = [];
     this.onStatus?.(imgPages.length ? `Reading ${imgPages.length === 1 ? 'your page' : `${imgPages.length} pages`}…` : 'Reading your note…');
     for (const p of imgPages) {
-      const blob = await this.pageImage(p);
+      const blob = await this.pageImage(p, px);
       if (blob) images.push(blob);
     }
     if (images.length) parts.push(`Attached: ${images.length} page image${images.length > 1 ? 's' : ''}, in order (${imgPages.map((p) => `page ${all.indexOf(p) + 1}`).join(', ')}).`);

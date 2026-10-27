@@ -5,8 +5,8 @@
 //   INKLY_PASSCODE   optional — if set, requests must send it (x-inkly-passcode)
 //   INKLY_MODEL      optional — defaults to the latest Gemini Flash
 
-const MAX_BODY = 4_000_000; // Vercel request bodies cap at ~4.5 MB
-const MAX_IMAGES = 8;
+const MAX_BODY = 18_000_000; // Gemini takes up to 20 MB of inline data per request
+const MAX_IMAGES = 100; // "Whole note" sends every page that needs a picture
 const MAX_TEXT = 200_000;
 
 type Turn = { role: 'user' | 'assistant'; content: string };
