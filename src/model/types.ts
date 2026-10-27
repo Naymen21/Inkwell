@@ -111,6 +111,8 @@ export interface NoteMeta {
   outline?: OutlineEntry[];
   /** True when the outline was found from headings rather than stored in the PDF. */
   outlineDetected?: boolean;
+  /** A scanned PDF was imported without an outline: read its table of contents with Inkly on first open. */
+  outlinePending?: boolean;
 }
 
 export interface Folder {

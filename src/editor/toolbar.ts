@@ -16,6 +16,7 @@ import { InklyPanel } from './inkly';
 import { pickFile } from '../ui/pickFiles';
 import { Recorder } from './audio';
 import { inClaude } from '../util/claude';
+import { findOutlineWithAI } from './aiOutline';
 
 const h = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', html = '') => {
   const e = document.createElement(tag);
@@ -647,6 +648,40 @@ export class Toolbar {
     this.markOutline();
   }
 
+  private readingOutline = false;
+
+  /**
+   * Read a scanned PDF's table of contents with Inkly and use it as the
+   * outline. `auto` runs once after import; otherwise it's from the menu.
+   */
+  async readScannedOutline(auto: boolean) {
+    const ed = this.ed;
+    if (this.readingOutline) return;
+    this.readingOutline = true;
+    ed.meta.outlinePending = false;
+    const st = ed.doc.state;
+    // Only the PDF pages, in order (a note can also have plain pages).
+    const pages = st.pages.filter((p) => p.bg);
+    try {
+      const { entries, problem } = await findOutlineWithAI(pages, (s) => toast(s, 8000));
+      if (entries.length) {
+        ed.meta.outline = entries;
+        ed.meta.outlineDetected = true;
+        this.outlineOpen = true;
+        this.renderOutline();
+        toast(`Outline ready: ${entries.length} section${entries.length === 1 ? '' : 's'} from the table of contents`);
+      } else if (!auto || problem) {
+        toast(problem ?? 'No table of contents found.', 6000);
+      }
+    } catch (e) {
+      const code = (e as { code?: string }).code;
+      toast(code === 'passcode' ? 'Inkly needs its passcode first — open Ask Inkly and enter it.' : code === 'rate_limited' ? 'Inkly is out of credits for now.' : 'Couldn’t read the table of contents. Try again from the ⋯ menu.', 6000);
+    } finally {
+      this.readingOutline = false;
+      ed.saveMeta();
+    }
+  }
+
   /** Highlight the section containing the page you're looking at. */
   private markOutline() {
     if (!this.outlinePanel.classList.contains('open')) return;
@@ -751,6 +786,7 @@ export class Toolbar {
         if (await confirmBox('Delete this page?', 'You can undo this.')) ed.doc.commit([{ t: 'removePage', id: cur.page.id }]);
       } },
       { label: 'Fit to width', icon: icons.pages, action: () => ed.fitWidth() },
+      ...(ed.doc.state.pages.some((p) => p.bg) ? [{ label: 'Find table of contents with Inkly', icon: icons.inkly, action: () => this.readScannedOutline(false) }] : []),
       ...(inClaude ? [] : [
         { label: 'Copy link to this note', icon: icons.share, action: () => this.copyLink(false) },
         { label: 'Copy link to this page', icon: icons.page, action: () => this.copyLink(true) },
@@ -779,6 +815,9 @@ export class Toolbar {
         this.ed.meta.outline = [...(this.ed.meta.outline ?? []), ...outline];
         if (detected) this.ed.meta.outlineDetected = true;
         this.ed.saveMeta();
+      } else if (!this.ed.meta.outline?.length) {
+        // Scanned PDF: read its table of contents with Inkly once the pages are in.
+        setTimeout(() => this.readScannedOutline(true), 300);
       }
       const after = this.ed.currentPage().page.id;
       const ops: Op[] = [];

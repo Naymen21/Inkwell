@@ -39,6 +39,8 @@ export function newPage(after?: Page): Page {
 export async function createNote(folder: string | null, title = 'Untitled note', pages?: Page[], outline?: OutlineEntry[], outlineDetected = false): Promise<NoteMeta> {
   const now = Date.now();
   const meta: NoteMeta = { id: uid(), title, folder, created: now, modified: now, clips: [], ...(outline?.length ? { outline, ...(outlineDetected ? { outlineDetected } : {}) } : {}) };
+  // A PDF with no readable outline: try reading its scanned table of contents when the note opens.
+  if (pages?.some((p) => p.bg) && !outline?.length) meta.outlinePending = true;
   const ps = pages?.length ? pages : [newPage()];
   const snap: Snapshot = { pages: ps, objects: Object.fromEntries(ps.map((p) => [p.id, []])) };
   // Born as a snapshot (not ops) so the first page can't be undone away.
@@ -117,6 +119,7 @@ export class Editor {
     ed.opsSinceSnap = ops.length;
     // Deep link to a page (1-based).
     if (page && ed.pages[page - 1]) ed.scrollToPage(ed.pages[page - 1]);
+    if (meta.outlinePending) setTimeout(() => ed.toolbar.readScannedOutline(true), 600);
     return ed;
   }
 

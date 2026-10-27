@@ -31,7 +31,8 @@ export const CLAUDE_COPY_URL = 'https://claude.ai/artifact/A6PyChCAAxJhTwABrX5ND
 // Inside Claude, Inkly runs on the viewer's Claude plan; anywhere else it uses
 // this deployment's own /api/inkly function (Gemini), if one is configured.
 let samplePromise: Promise<SampleFn | null> | null = null;
-const getSample = () => (samplePromise ??= useCapability<SampleFn>('sample').then(async (s) => {
+/** The AI backend: the viewer's Claude plan inside Claude, else this app's Gemini function. */
+export const getSample = () => (samplePromise ??= useCapability<SampleFn>('sample').then(async (s) => {
   if (s) {
     // The platform's function is frozen; wrap it rather than tagging it.
     const w = ((input, opts) => s(input, opts)) as SampleFn;
