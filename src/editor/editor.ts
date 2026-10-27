@@ -17,7 +17,9 @@ import { TextLayer } from './textLayer';
 import { EraserTool, InkTool, LassoTool, TextTool, hitObject, type Tool } from './tools';
 import { Toolbar } from './toolbar';
 
-const GAP = 28;
+const GAP = 18;
+/** Screen px kept clear above the first page for the floating toolbar. */
+const TOP = 108;
 const MIN_Z = 0.25, MAX_Z = 6;
 const SNAPSHOT_EVERY = 250;
 
@@ -131,7 +133,7 @@ export class Editor {
     };
     this.tool = this.tools[settings.tool];
     this.toolbar = new Toolbar(this);
-    this.root.append(this.toolbar.el, this.viewport, this.toolbar.selMenu, this.toolbar.playbar, this.toolbar.pageBadge);
+    this.root.append(this.viewport, this.toolbar.el, this.toolbar.pagesPanel, this.toolbar.selMenu, this.toolbar.playbar, this.toolbar.pageBadge);
     mount.append(this.root);
     this.root.classList.toggle('tool-text', settings.tool === 'text');
 
@@ -149,7 +151,7 @@ export class Editor {
   private layoutPages() {
     const st = this.doc.state;
     const maxW = Math.max(...st.pages.map((p) => p.w));
-    let y = GAP;
+    let y = 0;
     const next: PageView[] = [];
     const seen = new Set<string>();
     for (const p of st.pages) {
@@ -228,7 +230,7 @@ export class Editor {
     c.z = Math.min(MAX_Z, Math.max(MIN_Z, c.z));
     const W = this.docW * c.z, H = this.docH * c.z;
     c.tx = W <= this.vw ? (this.vw - W) / 2 : Math.min(24, Math.max(this.vw - W - 24, c.tx));
-    c.ty = Math.min(0, Math.max(Math.min(0, this.vh - H), c.ty));
+    c.ty = Math.min(TOP, Math.max(Math.min(TOP, this.vh - H - 24), c.ty));
   }
 
   private applyCam() {
@@ -254,16 +256,17 @@ export class Editor {
   }
 
   fitWidth() {
-    const z = Math.min(1.5, Math.max(MIN_Z, (this.vw - 32) / this.docW));
-    const top = this.screenToWorld(0, 0).y;
+    const side = this.vw > 900 ? 48 : 10;
+    const z = Math.min(2.4, Math.max(MIN_Z, (this.vw - 2 * side) / this.docW));
+    const top = (TOP - this.cam.ty) / this.cam.z;
     this.cam.z = z;
-    this.cam.ty = -top * z;
+    this.cam.ty = TOP - Math.max(0, top) * z;
     this.renderZ = z;
     this.applyCam();
   }
 
   scrollToPage(pv: PageView) {
-    this.cam.ty = -(pv.y - GAP / 2) * this.cam.z;
+    this.cam.ty = TOP - pv.y * this.cam.z;
     this.applyCam();
   }
 
@@ -277,6 +280,7 @@ export class Editor {
         return;
       }
     } catch { /* ignore */ }
+    this.cam.ty = TOP;
     this.fitWidth();
   }
 
@@ -348,6 +352,7 @@ export class Editor {
     this.text.sync(ch.texts);
     this.tools.lasso.refresh();
     this.byTime = null;
+    this.toolbar.docChanged(ch.layout);
     if (logged.length) {
       db.appendOps(this.meta.id, logged).catch((e) => { console.error(e); toast('Could not save — storage may be full'); });
       this.opsSinceSnap += logged.length;
@@ -407,7 +412,11 @@ export class Editor {
 
   // ------------------------------------------------------------ tools
 
+  /** Last tool before the current one (for "auto-deselect eraser"). */
+  prevTool: ToolName = 'pen';
+
   setTool(name: ToolName) {
+    if (settings.tool !== name && settings.tool !== 'eraser') this.prevTool = settings.tool;
     if (this.tool !== this.tools[name]) {
       this.tool.cancel();
       this.tool.deactivate?.();

@@ -143,14 +143,14 @@ export function drawText(ctx: CanvasRenderingContext2D, o: TextObj) {
 }
 
 /** Render a whole page into a fresh canvas (thumbnails, export). */
-export function renderPageToCanvas(page: Page, objs: PageObject[], scale: number): HTMLCanvasElement {
+export function renderPageToCanvas(page: Page, objs: PageObject[], scale: number, background = true): HTMLCanvasElement {
   const c = document.createElement('canvas');
   c.width = Math.max(1, Math.round(page.w * scale));
   c.height = Math.max(1, Math.round(page.h * scale));
   const ctx = c.getContext('2d')!;
   ctx.setTransform(scale, 0, 0, scale, 0, 0);
   const all = { x: 0, y: 0, w: page.w, h: page.h };
-  drawPaper(ctx, page, all, scale);
+  drawPaper(ctx, background ? page : { ...page, template: 'blank', paper: '#ffffff' }, all, scale);
   drawObjects(ctx, objs, null, { text: true, darkPaper: isDark(page.paper) });
   return c;
 }

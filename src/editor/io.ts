@@ -55,11 +55,14 @@ async function preloadMedia(state: DocState) {
   await Promise.all([...hashes].map((h) => media.ready(h)));
 }
 
-export async function exportPdf(title: string, state: DocState, progress: (d: number, t: number) => void): Promise<Blob> {
+export interface ExportOpts { background?: boolean; pageIds?: string[] }
+
+export async function exportPdf(title: string, state: DocState, progress: (d: number, t: number) => void, opts: ExportOpts = {}): Promise<Blob> {
   await preloadMedia(state);
   const { jsPDF } = await import('jspdf');
   // Skip a trailing blank page (the notebook always keeps one).
-  const pages = state.pages.filter((p, i) => i < state.pages.length - 1 || state.objectsOn(p.id).length || p.bg || state.pages.length === 1);
+  let pages = state.pages.filter((p, i) => i < state.pages.length - 1 || state.objectsOn(p.id).length || p.bg || state.pages.length === 1);
+  if (opts.pageIds) pages = state.pages.filter((p) => opts.pageIds!.includes(p.id));
   let pdf: InstanceType<typeof jsPDF> | null = null;
   for (let i = 0; i < pages.length; i++) {
     progress(i, pages.length);
@@ -67,7 +70,7 @@ export async function exportPdf(title: string, state: DocState, progress: (d: nu
     const orient = p.w > p.h ? 'landscape' : 'portrait';
     if (!pdf) pdf = new jsPDF({ unit: 'pt', format: [p.w, p.h], orientation: orient, compress: true });
     else pdf.addPage([p.w, p.h], orient);
-    const c = renderPageToCanvas(p, state.objectsOn(p.id), 2.5);
+    const c = renderPageToCanvas(p, state.objectsOn(p.id), 2.5, opts.background !== false);
     pdf.addImage(c, 'JPEG', 0, 0, p.w, p.h, undefined, 'FAST');
     c.width = c.height = 0;
     await new Promise((r) => setTimeout(r));

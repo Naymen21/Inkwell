@@ -13,10 +13,13 @@ export interface Settings {
   recentColors: string[];
   fingerDraw: boolean;
   holdToSnap: boolean;
+  straightLines: boolean;
+  autoDeselectEraser: boolean;
+  lassoMode: 'free' | 'rect';
   paper: { template: Template; color: string; size: 'letter' | 'a4' };
 }
 
-export const PEN_COLORS = ['#1c1c1e', '#2f6bd8', '#d63a3a', '#2e9a5b', '#8a4fd1', '#e8862a'];
+export const PEN_COLORS = ['#1c1c1e', '#e5484d', '#8e8e93', '#ffffff', '#7a4b2a', '#30a46c', '#3e7bfa', '#8e4ec6'];
 export const HL_COLORS = ['#ffe14d', '#7ef08a', '#7fd3ff', '#ff9ad5', '#ffb26b'];
 export const PAPER_COLORS = ['#ffffff', '#fbf6e8', '#eef3f8', '#24262b'];
 
@@ -26,11 +29,14 @@ const defaults: Settings = {
   penWidths: [1.4, 2.2, 3.6],
   highlighter: { color: HL_COLORS[0], width: 14 },
   hlWidths: [8, 14, 22],
-  eraser: { mode: 'partial', size: 14, highlighterOnly: false },
+  eraser: { mode: 'partial', size: 18, highlighterOnly: false },
   text: { size: 16, color: PEN_COLORS[0], bold: false, font: 'sans' },
   recentColors: [],
   fingerDraw: true,
   holdToSnap: true,
+  straightLines: true,
+  autoDeselectEraser: false,
+  lassoMode: 'free',
   paper: { template: 'lined', color: '#ffffff', size: 'letter' },
 };
 

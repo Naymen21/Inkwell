@@ -103,6 +103,8 @@ export interface Folder {
   /** null = divider (top level); otherwise the divider id this subject sits under. */
   parent: string | null;
   created: number;
+  /** Label color shown as a dot in the sidebar and a tag on note cards. */
+  color?: string;
 }
 
 export const PAGE_SIZES = {

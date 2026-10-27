@@ -93,7 +93,7 @@ export class InkTool implements Tool {
     if (shape) pts = shapeInk(shape, avgWidth(L.filter.pts, this.style().width));
     else {
       pts = L.filter.finish(L.raw.at(-1));
-      pts = this.kind === 'highlighter' ? straighten(pts) ?? simplify(pts) : simplify(pts);
+      pts = this.kind === 'highlighter' && settings.straightLines ? straighten(pts) ?? simplify(pts) : simplify(pts);
     }
     if (!pts.length) { this.ed.requestFrame(); return; }
     const hl = this.kind === 'highlighter';
@@ -167,6 +167,7 @@ export class EraserTool implements Tool {
     this.ed.doc.end();
     this.last = null;
     this.ed.requestFrame();
+    if (settings.autoDeselectEraser) this.ed.setTool(this.ed.prevTool);
   }
 
   cancel() { this.ed.doc.end(); this.last = null; this.ed.requestFrame(); }
@@ -271,7 +272,10 @@ export class LassoTool implements Tool {
   move(samples: Sample[]) {
     const p = samples.at(-1);
     if (!p) return;
-    if (this.mode === 'lasso') {
+    if (this.mode === 'lasso' && settings.lassoMode === 'rect') {
+      const a = this.poly[0];
+      this.poly = [a, { x: p.x, y: a.y }, { x: p.x, y: p.y }, { x: a.x, y: p.y }];
+    } else if (this.mode === 'lasso') {
       for (const s of samples) {
         const l = this.poly[this.poly.length - 1];
         if (Math.hypot(s.x - l.x, s.y - l.y) * this.ed.cam.z > 2) this.poly.push({ x: s.x, y: s.y });
@@ -471,6 +475,7 @@ export class LassoTool implements Tool {
       ed.worldTransform(ctx);
       ctx.beginPath();
       this.poly.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+      if (settings.lassoMode === 'rect') ctx.closePath();
       ctx.fillStyle = 'rgba(64,132,255,0.07)';
       ctx.fill();
       ctx.setLineDash([5 / z, 4 / z]);

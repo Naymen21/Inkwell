@@ -8,9 +8,9 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, html?: 
   return e;
 }
 
-function sheet(build: (box: HTMLDivElement, close: () => void) => void, onDismiss?: () => void) {
+export function sheet(build: (box: HTMLDivElement, close: () => void) => void, onDismiss?: () => void, cls = '') {
   const back = el('div', 'modal-back');
-  const box = el('div', 'modal');
+  const box = el('div', `modal ${cls}`);
   back.append(box);
   let closed = false;
   const close = () => {
