@@ -51,4 +51,11 @@ document.addEventListener('gesturestart', (e) => e.preventDefault());
 const standalone = window.top === window && !('claude' in window);
 if ('serviceWorker' in navigator && import.meta.env.PROD && standalone) {
   window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+  // When an updated worker takes over (it clears old caches), reload once so
+  // the page isn't left running on stale cached responses.
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (hadController && !reloaded) { reloaded = true; location.reload(); }
+  });
 }

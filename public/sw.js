@@ -1,6 +1,7 @@
 // Offline support: the app shell is cached so notes open with no connection.
 // Navigations are network-first (fresh deploys win); hashed assets cache-first.
-const CACHE = 'inkwell-v1';
+// Bumped to v2: v1 wrongly cached /api responses (a stale "Inkly not set up").
+const CACHE = 'inkwell-v2';
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(['/', '/manifest.webmanifest', '/icon.svg', '/icon-180.png'])));
@@ -14,7 +15,10 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   const req = e.request;
-  if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
+  const url = new URL(req.url);
+  if (req.method !== 'GET' || url.origin !== location.origin) return;
+  // Live data (the AI function) must always come from the network.
+  if (url.pathname.startsWith('/api/')) return;
   if (req.mode === 'navigate') {
     e.respondWith(
       fetch(req)

@@ -37,7 +37,10 @@ const getSample = () => (samplePromise ??= useCapability<SampleFn>('sample').the
     w.provider = 'Claude';
     return w;
   }
-  return (await serverBackend()) as SampleFn | null;
+  const server = (await serverBackend()) as SampleFn | null;
+  // Not available yet (e.g. the key was added after this page loaded): check again next time.
+  if (!server) samplePromise = null;
+  return server;
 }));
 
 const RULES = `You are Inkly, the friendly study assistant inside Inkwell, a handwriting notes app for students.
@@ -123,6 +126,7 @@ export class InklyPanel {
 
   toggle(open = !this.isOpen) {
     this.el.classList.toggle('open', open);
+    if (open && this.ready && !this.sample) getSample().then((s) => { if (s) { this.sample = s; this.renderLog(); } });
     if (open) setTimeout(() => { if (matchMedia('(pointer: fine)').matches) this.input.focus(); }, 250);
   }
 

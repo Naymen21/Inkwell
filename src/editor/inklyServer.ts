@@ -26,7 +26,7 @@ const toBase64 = (b: Blob) => new Promise<string>((res, rej) => {
 export async function serverBackend(): Promise<InklyBackend | null> {
   let info: { ok?: boolean; provider?: string };
   try {
-    const r = await fetch('./api/inkly', { headers: { accept: 'application/json' } });
+    const r = await fetch('./api/inkly', { headers: { accept: 'application/json' }, cache: 'no-store' });
     if (!r.ok || !(r.headers.get('content-type') ?? '').includes('json')) return null;
     info = await r.json();
   } catch { return null; }
