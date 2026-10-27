@@ -47,7 +47,7 @@ export async function renderLibrary(mount: HTMLElement, open: (id: string) => vo
 
   // Sidebar: settings + search sit above the navigation and never re-render (keeps focus).
   const sideTop = h('div', 'side-top');
-  sideTop.append(h('div', 'brand', `<span class="brand-mark">${icons.pen}</span>Inkwell`));
+  sideTop.append(h('div', 'brand', `<span class="brand-mark">${icons.logo}</span>inkwell`));
   const gear = h('button', 'icon-btn', icons.gear);
   gear.title = 'Settings';
   gear.setAttribute('aria-label', 'Settings');
@@ -309,7 +309,7 @@ export async function renderLibrary(mount: HTMLElement, open: (id: string) => vo
         if (/\.pdf$/i.test(file.name) || file.type === 'application/pdf') {
           const pages = await pdfToPages(file, (d, t) => b.set(`Importing ${file.name} — page ${Math.min(d + 1, t)} of ${t}`));
           last = (await createNote(folder, file.name.replace(/\.pdf$/i, ''), pages)).id;
-        } else if (/\.inkwell$|\.json$/i.test(file.name)) {
+        } else if (/\.inkwell(\.json)?$|\.json$/i.test(file.name)) {
           last = (await importNoteFile(file, folder)).id;
         }
       } catch (e) {

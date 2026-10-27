@@ -22,6 +22,8 @@ export class Recorder {
   elapsed() { return this.rec ? (performance.now() - this.startedAt) / 1000 : 0; }
 
   static supported() {
+    // claude.ai frames refuse the microphone, so recording is a standalone-app feature.
+    if ('claude' in window) return false;
     return typeof MediaRecorder !== 'undefined' && !!navigator.mediaDevices?.getUserMedia;
   }
 

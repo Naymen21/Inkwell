@@ -12,6 +12,8 @@ import { exportNoteFile, exportPdf, pdfToPages, safeName, saveBlob } from './io'
 import { HL_COLORS, PAPER_COLORS, PEN_COLORS, saveSettings, settings, type ToolName } from './settings';
 import { hasClipboard } from './tools';
 import { db } from '../persist/db';
+import { InklyPanel } from './inkly';
+import { Recorder } from './audio';
 
 const h = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', html = '') => {
   const e = document.createElement(tag);
@@ -56,6 +58,7 @@ export class Toolbar {
   readonly selMenu = h('div', 'sel-menu');
   readonly playbar = h('div', 'playbar glass');
   readonly pageBadge = h('div', 'page-badge');
+  readonly inkly: InklyPanel;
   private dock = h('div', 'dock glass');
   private opts = h('div', 'dock-opts');
   private toolBtns = new Map<ToolName, HTMLButtonElement>();
@@ -74,6 +77,7 @@ export class Toolbar {
   private optsKey = '';
 
   constructor(private ed: Editor) {
+    this.inkly = new InklyPanel(ed);
     this.buildChrome();
     this.buildPlaybar();
     this.buildPagesPanel();
@@ -120,6 +124,7 @@ export class Toolbar {
       collapse.setAttribute('aria-label', c ? 'Show options' : 'Hide options');
       collapse.title = c ? 'Show options' : 'Hide options';
     }, 'icon-btn tool-btn collapse-btn');
+    if (!Recorder.supported()) this.recBtn.hidden = true;
     tools.append(this.recBtn, h('span', 'vsep'), this.handBtn, collapse);
     this.dock.append(tools, this.opts);
 
@@ -128,8 +133,13 @@ export class Toolbar {
     this.redoBtn = this.btn(icons.redo, 'Redo', () => ed.doc.redo());
     this.pagesBtn = this.btn(icons.pages, 'Pages', () => this.togglePages());
     right.append(this.undoBtn, this.redoBtn, this.btn(icons.more, 'More', (b) => this.moreMenu(b)), this.pagesBtn);
+    const ask = h('button', 'ask-inkly', `<span class="inkly-avatar xs">${icons.inkly}</span><span>Ask Inkly</span>`);
+    ask.setAttribute('aria-label', 'Ask Inkly, your AI study assistant');
+    ask.onclick = () => { this.togglePages(false); this.inkly.toggle(); };
+    const rightWrap = h('div', 'right-wrap');
+    rightWrap.append(right, ask);
 
-    this.el.append(left, this.dock, right);
+    this.el.append(left, this.dock, rightWrap);
   }
 
   update() {
@@ -434,6 +444,7 @@ export class Toolbar {
   }
 
   private togglePages(open = !this.pagesPanel.classList.contains('open')) {
+    if (open) this.inkly.toggle(false);
     this.pagesPanel.classList.toggle('open', open);
     this.pagesBtn.classList.toggle('active', open);
     if (open) this.renderThumbs();

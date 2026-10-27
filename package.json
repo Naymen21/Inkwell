@@ -6,7 +6,8 @@
     "dev": "vite --host",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host",
-    "test": "vitest run"
+    "test": "vitest run",
+    "artifact": "vite build && node scripts/artifact.mjs"
   },
   "type": "module",
   "devDependencies": {

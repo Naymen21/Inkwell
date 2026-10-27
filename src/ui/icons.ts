@@ -48,5 +48,9 @@ export const icons = {
   partial: svg('<path d="M3 14c2-4 4-4 6 0"/><path d="M15 14c2 4 4 4 6 0" /><path d="M11 11l2 2M13 11l-2 2" stroke-width="1.4"/>'),
   freeform: svg('<path d="M6 17c-2-1.6-3-3.4-3-5.4C3 7.4 7 4 12 4s9 3.4 9 7.6-4 7.4-9 7.4c-1.4 0-2.7-.2-3.9-.6" stroke-dasharray="2.4 2.6"/>'),
   camera: svg('<path d="M4 8h3l2-3h6l2 3h3a1 1 0 011 1v9a1 1 0 01-1 1H4a1 1 0 01-1-1V9a1 1 0 011-1z"/><circle cx="12" cy="13" r="3.5"/>'),
+  logo: '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M10.6 12v4.6a2.6 2.6 0 002.6 2.6h.9" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"/><path d="M10.6 3.6c1.6 2 2.6 3.4 2.6 4.6a2.6 2.6 0 01-5.2 0c0-1.2 1-2.6 2.6-4.6z" fill="#ffc83d"/></svg>',
+  inkly: '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 4.2c2.9 3.6 5.2 6.6 5.2 9.4a5.2 5.2 0 01-10.4 0c0-2.8 2.3-5.8 5.2-9.4z" fill="#fff"/><path d="M12 10.6l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z" fill="var(--brand, #3b36c4)"/><path d="M18.6 3.2l.45 1.15 1.15.45-1.15.45-.45 1.15-.45-1.15-1.15-.45 1.15-.45z" fill="#ffc83d"/></svg>',
+  spark: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1L5 10.5l5.1-1.9z" fill="#ffc83d"/></svg>',
+  send: svg('<path d="M12 19V5"/><path d="M6 11l6-6 6 6"/>'),
   sort: svg('<path d="M7 4v16M3 16l4 4 4-4"/><path d="M17 20V4M13 8l4-4 4 4"/>'),
 };

@@ -7,6 +7,7 @@ import { db } from '../persist/db';
 import { media } from '../render/media';
 import { renderPageToCanvas } from '../render/draw';
 import { uid } from '../util/ids';
+import { inClaude, useCapability } from '../util/claude';
 
 async function loadPdfjs() {
   const [lib, worker] = await Promise.all([
@@ -138,7 +139,18 @@ export async function importNoteFile(blob: Blob, folder: string | null): Promise
   return meta;
 }
 
+type Downloads = { save(r: { filename: string; data: Blob }): Promise<unknown> };
+
 export async function saveBlob(blob: Blob, name: string) {
+  // Inside Claude the frame can't download directly; the viewer confirms each save.
+  if (inClaude) {
+    const dl = await useCapability<Downloads>('downloads');
+    if (!dl) throw new Error('Saving files is not available here');
+    const filename = name.endsWith('.inkwell') ? `${name}.json` : name;
+    try { await dl.save({ filename, data: blob }); }
+    catch (e) { if ((e as { code?: string }).code !== 'declined') throw e; }
+    return;
+  }
   const file = new File([blob], name, { type: blob.type });
   const coarse = matchMedia('(pointer: coarse)').matches;
   if (coarse && navigator.canShare?.({ files: [file] })) {

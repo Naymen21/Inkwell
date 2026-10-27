@@ -36,6 +36,8 @@ navigator.storage?.persist?.().catch(() => {});
 // Block Safari's page-level pinch so only our canvas zooms.
 document.addEventListener('gesturestart', (e) => e.preventDefault());
 
-if ('serviceWorker' in navigator && import.meta.env.PROD) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+// Offline support only for the standalone app; inside claude.ai the page is framed.
+const standalone = window.top === window && !('claude' in window);
+if ('serviceWorker' in navigator && import.meta.env.PROD && standalone) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
 }

@@ -134,7 +134,7 @@ export class Editor {
     };
     this.tool = this.tools[settings.tool];
     this.toolbar = new Toolbar(this);
-    this.root.append(this.viewport, this.toolbar.el, this.toolbar.pagesPanel, this.toolbar.selMenu, this.toolbar.playbar, this.toolbar.pageBadge);
+    this.root.append(this.viewport, this.toolbar.el, this.toolbar.pagesPanel, this.toolbar.inkly.el, this.toolbar.selMenu, this.toolbar.playbar, this.toolbar.pageBadge);
     mount.append(this.root);
     this.root.classList.toggle('tool-text', settings.tool === 'text');
     this.root.classList.toggle('dot-cursor', ['pen', 'highlighter', 'shape', 'eraser'].includes(settings.tool));
