@@ -73,12 +73,12 @@ export function openSettings(onChange?: () => void) {
           row('Pressure sensitivity', 'Pen lines get thicker the harder you press.', settings.pen.pressure, (v) => (settings.pen.pressure = v)),
           (() => {
             const r = h('label', 'set-row');
-            r.innerHTML = '<span class="set-text"><span class="set-label">Inkly credits per day</span><span class="set-desc">Answers Inkly can give per day on the hosted app. Resets at midnight Pacific. (Inside Claude it uses your Claude plan instead.)</span></span>';
+            r.innerHTML = '<span class="set-text"><span class="set-label">Inkly credits per day</span><span class="set-desc">Answers Inkly can give per day on this device. Resets at midnight Pacific. 250 keeps two people with two devices each inside Google’s free limit. (Inside Claude it uses your Claude plan instead.)</span></span>';
             const n = h('input', 'num-field');
             n.type = 'number'; n.min = '1'; n.max = '1000'; n.step = '5';
             n.value = String(settings.inklyDailyCredits);
             n.setAttribute('aria-label', 'Inkly credits per day');
-            n.onchange = () => { settings.inklyDailyCredits = Math.max(1, Math.min(1000, Math.round(Number(n.value) || 50))); n.value = String(settings.inklyDailyCredits); changed(); };
+            n.onchange = () => { settings.inklyDailyCredits = Math.max(1, Math.min(1000, Math.round(Number(n.value) || 250))); n.value = String(settings.inklyDailyCredits); changed(); };
             r.append(n);
             return r;
           })(),

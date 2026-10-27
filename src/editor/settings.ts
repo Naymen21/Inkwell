@@ -49,7 +49,9 @@ const defaults: Settings = {
   lassoMode: 'free',
   dock: DEFAULT_DOCK.map((id) => ({ id, hidden: false })),
   appearance: 'system',
-  inklyDailyCredits: 50,
+  // Free Gemini allows ~1,000+ requests/day per model (per project, Oct 2026).
+  // 250 per device keeps 2 people x 2 devices within one model's daily limit.
+  inklyDailyCredits: 250,
   paper: { template: 'grid', color: '#ffffff', size: 'letter' },
 };
 
@@ -60,7 +62,9 @@ function load(): Settings {
       const s = JSON.parse(raw);
       return { ...defaults, ...s, pen: { ...defaults.pen, ...s.pen }, highlighter: { ...defaults.highlighter, ...s.highlighter },
         eraser: { ...defaults.eraser, ...s.eraser }, text: { ...defaults.text, ...s.text }, paper: { ...defaults.paper, ...s.paper },
-        dock: normalizeDock(s.dock) };
+        dock: normalizeDock(s.dock),
+        // 50 was the original default; move people who never changed it to the new one.
+        inklyDailyCredits: !s.inklyDailyCredits || s.inklyDailyCredits === 50 ? defaults.inklyDailyCredits : s.inklyDailyCredits };
     }
   } catch { /* storage blocked */ }
   return structuredClone(defaults);
