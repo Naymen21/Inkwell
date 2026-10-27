@@ -72,6 +72,19 @@ describe('api/inkly', () => {
     expect(await (await post({ turns: [{ role: 'user', content: 'hi' }] })).json()).toMatchObject({ code: 'busy' });
   });
 
+  it('asks for minimal thinking, and retries plainly if a model rejects it', async () => {
+    env.GEMINI_API_KEY = 'k';
+    const bodies: { generationConfig: { thinkingConfig?: unknown } }[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (_u: string, init: RequestInit) => {
+      bodies.push(JSON.parse(String(init.body)));
+      return bodies.length === 1 ? new Response('{"error":{"message":"thinking_level is not supported"}}', { status: 400 }) : sse([chunk('ok')]);
+    }));
+    const r = await post({ turns: [{ role: 'user', content: 'hi' }] });
+    expect(r.status).toBe(200);
+    expect(bodies[0].generationConfig.thinkingConfig).toEqual({ thinkingLevel: 'minimal' });
+    expect(bodies[1].generationConfig.thinkingConfig).toBeUndefined();
+  });
+
   it('maps Gemini quota errors to rate_limited', async () => {
     env.GEMINI_API_KEY = 'k';
     vi.stubGlobal('fetch', vi.fn(async () => new Response('quota', { status: 429 })));

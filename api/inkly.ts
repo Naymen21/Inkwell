@@ -52,15 +52,25 @@ export async function POST(req: Request) {
   // when a model is busy (503), out of quota (429) or not offered (404).
   const configured = env('INKLY_MODEL');
   const models = configured ? [configured] : ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-flash-lite-latest', 'gemini-2.5-flash-lite'];
-  const body2 = JSON.stringify({ contents, generationConfig: { temperature: 0.4, maxOutputTokens: 8192 } });
-  let last: { status: number; detail: string } = { status: 502, detail: 'Could not reach Gemini' };
-  for (const model of models) {
-    const upstream = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`, {
+  const base = { temperature: 0.4, maxOutputTokens: 8192 };
+  const call = (model: string, generationConfig: object) =>
+    fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
-      body: body2,
+      body: JSON.stringify({ contents, generationConfig }),
       signal: req.signal,
     }).catch(() => null);
+  let last: { status: number; detail: string } = { status: 502, detail: 'Could not reach Gemini' };
+  for (const model of models) {
+    // Speed: thinking delays the first word by seconds. Keep it minimal
+    // (2.5 models take a token budget, newer ones a level).
+    const thinking = /2\.5/.test(model) ? { thinkingBudget: 0 } : { thinkingLevel: 'minimal' };
+    let upstream = await call(model, { ...base, thinkingConfig: thinking });
+    if (upstream && upstream.status === 400) {
+      // This model doesn't accept that thinking setting: ask again with the default.
+      const detail = await upstream.clone().text().catch(() => '');
+      if (/thinking/i.test(detail)) upstream = await call(model, base);
+    }
     if (upstream?.ok && upstream.body) {
       return new Response(upstream.body, { headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-store', 'x-inkly-model': model } });
     }

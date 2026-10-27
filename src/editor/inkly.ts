@@ -79,6 +79,15 @@ const ERRORS: Record<string, string> = {
   upstream_error: 'Connection hiccup. Try again.',
 };
 
+const objIds = new WeakMap<object, number>();
+let nextObjId = 1;
+/** A key that changes whenever an object is replaced by an edit. */
+function objectKey(o: object) {
+  let k = objIds.get(o);
+  if (!k) { k = nextObjId++; objIds.set(o, k); }
+  return k;
+}
+
 /** Tiny safe markdown: escape first, then headings, bullets, numbers, bold. */
 function renderMd(src: string): string {
   const lines = esc(src).split('\n');
@@ -112,7 +121,8 @@ export class InklyPanel {
   private input = h('textarea', 'inkly-input');
   private sendBtn = h('button', 'inkly-send');
   private scopeSeg = h('div', 'segmented inkly-scope');
-  private scope: 'page' | 'note' = 'note';
+  // Reading just this page is much faster; study guide / flashcards still read the whole note.
+  private scope: 'page' | 'note' = 'page';
   private turns: Turn[] = [];
   private busy: AbortController | null = null;
   private sample: SampleFn | null = null;
@@ -302,6 +312,8 @@ export class InklyPanel {
     return st.pages.filter((p) => p.bg || st.objectsOn(p.id).length);
   }
 
+  private pageImages = new Map<string, { sig: string; blob: Blob }>();
+
   private async gather(scope: 'page' | 'note', maxImages: number) {
     const st = this.ed.doc.state;
     const pages = this.scopePages(scope);
@@ -311,17 +323,25 @@ export class InklyPanel {
       const typed = st.objectsOn(p.id).filter((o): o is TextObj => o.kind === 'text').map((o) => o.text).join('\n');
       if (typed.trim()) parts.push(`Typed text on page ${all.indexOf(p) + 1}:\n${typed}`);
     }
-    const imgPages = pages.slice(0, maxImages);
-    if (pages.length > imgPages.length) parts.push(`(Only the first ${imgPages.length} of ${pages.length} pages are attached as images.)`);
+    // Only pages with handwriting, images or a PDF need a picture; typed text is sent as text.
+    const visual = pages.filter((p) => p.bg || st.objectsOn(p.id).some((o) => o.kind !== 'text'));
+    const imgPages = visual.slice(0, maxImages);
+    if (visual.length > imgPages.length) parts.push(`(Only the first ${imgPages.length} of ${visual.length} handwritten pages are attached as images.)`);
     if (!pages.length) parts.push('(The note is empty so far.)');
     const images: Blob[] = [];
     for (const p of imgPages) {
+      const objs = st.objectsOn(p.id);
+      // Objects are replaced (never mutated) on change, so their identities describe the page.
+      const sig = `${p.bg ?? ''}|${p.template}|${p.paper}|${objs.map((o) => objectKey(o)).join(',')}`;
+      const hit = this.pageImages.get(p.id);
+      if (hit && hit.sig === sig) { images.push(hit.blob); continue; }
       if (p.bg) await media.ready(p.bg);
-      for (const o of st.objectsOn(p.id)) if (o.kind === 'image') await media.ready(o.media);
-      const c = renderPageToCanvas(p, st.objectsOn(p.id), Math.sqrt(1_150_000 / (p.w * p.h)));
-      const blob = await new Promise<Blob | null>((r) => c.toBlob(r, 'image/jpeg', 0.86));
+      for (const o of objs) if (o.kind === 'image') await media.ready(o.media);
+      // ~0.6 MP is plenty to read handwriting and uploads about half as much as before.
+      const c = renderPageToCanvas(p, objs, Math.sqrt(600_000 / (p.w * p.h)));
+      const blob = await new Promise<Blob | null>((r) => c.toBlob(r, 'image/jpeg', 0.8));
       c.width = c.height = 0;
-      if (blob) images.push(blob);
+      if (blob) { images.push(blob); this.pageImages.set(p.id, { sig, blob }); }
     }
     if (images.length) parts.push(`Attached: ${images.length} page image${images.length > 1 ? 's' : ''}, in order (${imgPages.map((p) => `page ${all.indexOf(p) + 1}`).join(', ')}).`);
     return { text: parts.join('\n\n'), images };
