@@ -120,8 +120,11 @@ export function drawObject(ctx: CanvasRenderingContext2D, o: PageObject, opts: D
     ctx.globalCompositeOperation = 'source-over';
   } else if (o.kind === 'image') {
     const img = media.image(o.media);
+    ctx.save();
+    if (o.rot) { ctx.translate(o.x + o.w / 2, o.y + o.h / 2); ctx.rotate(o.rot); ctx.translate(-(o.x + o.w / 2), -(o.y + o.h / 2)); }
     if (img) ctx.drawImage(img, o.x, o.y, o.w, o.h);
     else { ctx.fillStyle = 'rgba(128,128,128,0.15)'; ctx.fillRect(o.x, o.y, o.w, o.h); }
+    ctx.restore();
   } else if (o.kind === 'text' && opts.text) {
     drawText(ctx, o);
   } else if (o.kind === 'sticky' && opts.text) {
@@ -152,6 +155,8 @@ export const FONTS: Record<FontKind, string> = {
 export const TEXT_LINE = 1.3;
 
 export function drawText(ctx: CanvasRenderingContext2D, o: TextObj) {
+  ctx.save();
+  if (o.rot) { ctx.translate(o.x + o.w / 2, o.y + o.h / 2); ctx.rotate(o.rot); ctx.translate(-(o.x + o.w / 2), -(o.y + o.h / 2)); }
   ctx.fillStyle = o.color;
   ctx.font = `${o.bold ? 'bold ' : ''}${o.size}px ${FONTS[o.font]}`;
   ctx.textBaseline = 'top';
@@ -171,6 +176,7 @@ export function drawText(ctx: CanvasRenderingContext2D, o: TextObj) {
     ctx.fillText(line, o.x, y);
     y += lh;
   }
+  ctx.restore();
 }
 
 export function drawSticky(ctx: CanvasRenderingContext2D, o: StickyObj) {

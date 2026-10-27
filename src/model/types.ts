@@ -31,6 +31,8 @@ export interface TextObj extends BaseObj {
   color: string;
   bold: boolean;
   font: FontKind;
+  /** Rotation in radians about the box's center. */
+  rot?: number;
 }
 
 export interface ImageObj extends BaseObj {
@@ -38,6 +40,8 @@ export interface ImageObj extends BaseObj {
   x: number; y: number; w: number; h: number;
   /** Content hash of the blob in the media store. */
   media: string;
+  /** Rotation in radians about the image's center. */
+  rot?: number;
 }
 
 /** A floating sticky note: a small icon when collapsed, a card when open. */

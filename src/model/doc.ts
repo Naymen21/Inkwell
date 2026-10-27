@@ -11,7 +11,12 @@ export const STICKY_ICON = 30;
 export function objBounds(o: PageObject): Rect {
   if (o.kind === 'stroke') return o.bbox;
   if (o.kind === 'sticky' && !o.open) return { x: o.x, y: o.y, w: STICKY_ICON, h: STICKY_ICON };
-  return { x: o.x, y: o.y, w: o.w, h: o.h };
+  const rot = o.kind === 'sticky' ? 0 : o.rot ?? 0;
+  if (!rot) return { x: o.x, y: o.y, w: o.w, h: o.h };
+  // Rotated box: the axis-aligned box around its four corners.
+  const cx = o.x + o.w / 2, cy = o.y + o.h / 2, c = Math.abs(Math.cos(rot)), s = Math.abs(Math.sin(rot));
+  const w = o.w * c + o.h * s, h = o.w * s + o.h * c;
+  return { x: cx - w / 2, y: cy - h / 2, w, h };
 }
 
 export function strokeBBox(pts: number[]): Rect {

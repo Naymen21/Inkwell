@@ -743,6 +743,13 @@ export class Editor {
     if (this.ignored.delete(e.pointerId)) return;
     this.ptrs.delete(e.pointerId);
     const g = this.gesture;
+    if (this.selGesture && this.ptrs.size < 2) {
+      // Lifting a finger ends the selection gesture (no panning afterwards).
+      this.selGesture = null;
+      this.tools.lasso.gestureEnd();
+      this.gesture = null;
+      return;
+    }
     if (g?.kind === 'pinch') {
       if (this.ptrs.size === 1) {
         const [id, p] = [...this.ptrs][0];
@@ -800,8 +807,19 @@ export class Editor {
     this.inertia = requestAnimationFrame(step);
   }
 
+  /** Two fingers on a selection: pinch/twist/slide it (Select tool). */
+  private selGesture: { d0: number; a0: number; c0: Pt } | null = null;
+
   private startPinch() {
     const [a, b] = [...this.ptrs.values()];
+    if (this.tool === this.tools.lasso) {
+      const mid = this.screenToWorld((a.x + b.x) / 2, (a.y + b.y) / 2);
+      if (this.tools.lasso.gestureStart(mid)) {
+        this.selGesture = { d0: Math.max(10, Math.hypot(b.x - a.x, b.y - a.y)), a0: Math.atan2(b.y - a.y, b.x - a.x), c0: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } };
+        this.gesture = { kind: 'pinch', d0: 1, cx: 0, cy: 0, z0: this.cam.z, tx0: this.cam.tx, ty0: this.cam.ty };
+        return;
+      }
+    }
     this.gesture = {
       kind: 'pinch', d0: Math.max(10, Math.hypot(b.x - a.x, b.y - a.y)),
       cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2, z0: this.cam.z, tx0: this.cam.tx, ty0: this.cam.ty,
@@ -811,6 +829,13 @@ export class Editor {
   private updatePinch() {
     const g = this.gesture as Extract<Gesture, { kind: 'pinch' }>;
     const [a, b] = [...this.ptrs.values()];
+    if (this.selGesture) {
+      const sg = this.selGesture, z = this.cam.z;
+      const d = Math.hypot(b.x - a.x, b.y - a.y), ang = Math.atan2(b.y - a.y, b.x - a.x);
+      const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
+      this.tools.lasso.gestureUpdate(d / sg.d0, ang - sg.a0, (cx - sg.c0.x) / z, (cy - sg.c0.y) / z);
+      return;
+    }
     const d = Math.hypot(b.x - a.x, b.y - a.y);
     const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
     const z = Math.min(MAX_Z, Math.max(MIN_Z, (g.z0 * d) / g.d0));

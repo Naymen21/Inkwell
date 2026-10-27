@@ -215,6 +215,16 @@ export class EraserTool implements Tool {
 export interface Selection { ids: string[]; bounds: Rect }
 
 let clipboard: PageObject[] | null = null;
+/** Selection outline / handle color. */
+const SEL = '#4f7cf6';
+
+/** Snap to straight angles (0°, ±90°, 180°) when within 4°. */
+function snapAngle(a: number) {
+  // Keep within -180°..180° so a small twist never reads as -315°.
+  a = Math.atan2(Math.sin(a), Math.cos(a));
+  const q = Math.PI / 2, near = Math.round(a / q) * q;
+  return Math.abs(a - near) < (4 * Math.PI) / 180 ? near : a;
+}
 /** Placed on the system clipboard by Inkwell's copy, so a paste knows to use the copied ink. */
 export const OBJECTS_MARKER = '\u2063inkwell-objects\u2063';
 export const hasClipboard = () => !!clipboard?.length;
@@ -235,36 +245,80 @@ function mapObj<T extends PageObject>(o: T, fx: (x: number) => number, fy: (y: n
   return n;
 }
 
+/** A selection transform: scale and rotate about a pivot, then translate. */
+interface Xf { px: number; py: number; s: number; a: number; dx: number; dy: number }
+const NO_XF: Xf = { px: 0, py: 0, s: 1, a: 0, dx: 0, dy: 0 };
+
+function applyXf(t: Xf, x: number, y: number): Pt {
+  const c = Math.cos(t.a) * t.s, si = Math.sin(t.a) * t.s;
+  const rx = x - t.px, ry = y - t.py;
+  return { x: t.px + rx * c - ry * si + t.dx, y: t.py + rx * si + ry * c + t.dy };
+}
+
+/** Apply a transform (pivot in the object's own page coordinates). */
+export function xfObj<T extends PageObject>(o: T, t: Xf): T {
+  if (o.kind === 'stroke') {
+    const pts = o.pts.slice();
+    for (let i = 0; i < pts.length; i += 3) {
+      const q = applyXf(t, pts[i], pts[i + 1]);
+      pts[i] = Math.round(q.x * 100) / 100;
+      pts[i + 1] = Math.round(q.y * 100) / 100;
+      pts[i + 2] = Math.round(pts[i + 2] * t.s * 100) / 100;
+    }
+    return { ...o, pts, bbox: strokeBBox(pts) };
+  }
+  // Sticky notes keep their size and stay upright; only their position follows.
+  if (o.kind === 'sticky') { const q = applyXf(t, o.x, o.y); return { ...o, x: q.x, y: q.y }; }
+  const c = applyXf(t, o.x + o.w / 2, o.y + o.h / 2);
+  const w = o.w * t.s, h = o.h * t.s;
+  let rot = ((o.rot ?? 0) + t.a) % (Math.PI * 2);
+  if (Math.abs(rot) < 1e-3) rot = 0;
+  const n = { ...o, x: c.x - w / 2, y: c.y - h / 2, w, h, rot } as T;
+  if (n.kind === 'text') (n as TextObj).size = (o as TextObj).size * t.s;
+  return n;
+}
+
+function segsCross(a: Pt, b: Pt, c: Pt, d: Pt) {
+  const o = (p: Pt, q: Pt, r: Pt) => Math.sign((q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x));
+  return o(a, b, c) !== o(a, b, d) && o(c, d, a) !== o(c, d, b);
+}
+
 export class LassoTool implements Tool {
   sel: Selection | null = null;
-  private mode: 'none' | 'lasso' | 'move' | 'scale' = 'none';
+  private mode: 'none' | 'lasso' | 'move' | 'scale' | 'rotate' | 'gesture' = 'none';
   private poly: Pt[] = [];
   private start: Pt = { x: 0, y: 0 };
-  private dx = 0;
-  private dy = 0;
-  private s = 1;
+  private startAngle = 0;
+  private xf: Xf = { ...NO_XF };
 
   constructor(private ed: Editor) {}
 
-  private handle() {
-    const b = this.sel!.bounds;
-    return { x: b.x + b.w, y: b.y + b.h };
+  private pad() { return 6 / this.ed.cam.z; }
+  /** Resize dot (bottom-right) and rotate dot (top-right), in world coords. */
+  private handles() {
+    const b = this.sel!.bounds, pad = this.pad();
+    return { scale: { x: b.x + b.w + pad, y: b.y + b.h + pad }, rotate: { x: b.x + b.w + pad, y: b.y - pad } };
+  }
+  private center(): Pt { const b = this.sel!.bounds; return { x: b.x + b.w / 2, y: b.y + b.h / 2 }; }
+
+  private begin(mode: 'move' | 'scale' | 'rotate' | 'gesture', p: Pt) {
+    this.mode = mode;
+    this.start = { x: p.x, y: p.y };
+    const b = this.sel!.bounds, c = this.center();
+    const pivot = mode === 'scale' ? { x: b.x, y: b.y } : c;
+    this.xf = { ...NO_XF, px: pivot.x, py: pivot.y };
+    this.startAngle = Math.atan2(p.y - c.y, p.x - c.x);
+    this.ed.setHidden(this.sel!.ids);
+    this.ed.text.hide(this.sel!.ids);
+    this.ed.hideSelectionMenu();
   }
 
   down(p: Sample) {
     if (this.sel) {
-      const h = this.handle();
-      const z = this.ed.cam.z;
-      if (Math.hypot(p.x - h.x, p.y - h.y) * z < 28) this.mode = 'scale';
-      else if (inRect(inflate(this.sel.bounds, 10 / z), p.x, p.y)) this.mode = 'move';
-      if (this.mode !== 'none') {
-        this.start = { x: p.x, y: p.y };
-        this.dx = this.dy = 0;
-        this.s = 1;
-        this.ed.setHidden(this.sel.ids);
-        this.ed.hideSelectionMenu();
-        return;
-      }
+      const h = this.handles(), z = this.ed.cam.z;
+      if (Math.hypot(p.x - h.rotate.x, p.y - h.rotate.y) * z < 26) { this.begin('rotate', p); return; }
+      if (Math.hypot(p.x - h.scale.x, p.y - h.scale.y) * z < 26) { this.begin('scale', p); return; }
+      if (inRect(inflate(this.sel.bounds, 10 / z), p.x, p.y)) { this.begin('move', p); return; }
     }
     this.clear();
     this.mode = 'lasso';
@@ -283,55 +337,65 @@ export class LassoTool implements Tool {
         if (Math.hypot(s.x - l.x, s.y - l.y) * this.ed.cam.z > 2) this.poly.push({ x: s.x, y: s.y });
       }
     } else if (this.mode === 'move') {
-      this.dx = p.x - this.start.x;
-      this.dy = p.y - this.start.y;
-      this.preview();
+      this.xf.dx = p.x - this.start.x;
+      this.xf.dy = p.y - this.start.y;
     } else if (this.mode === 'scale') {
       const b = this.sel!.bounds;
       const s = ((p.x - b.x) * b.w + (p.y - b.y) * b.h) / (b.w * b.w + b.h * b.h || 1);
-      this.s = Math.min(8, Math.max(0.1, s));
-      this.preview();
+      this.xf.s = Math.min(8, Math.max(0.1, s));
+    } else if (this.mode === 'rotate') {
+      const c = this.center();
+      this.xf.a = snapAngle(Math.atan2(p.y - c.y, p.x - c.x) - this.startAngle);
     }
     this.ed.requestFrame();
   }
 
-  private preview() {
-    const b = this.sel!.bounds;
-    for (const id of this.sel!.ids) {
-      const o = this.ed.doc.state.objects.get(id);
-      if (o?.kind !== 'text' && o?.kind !== 'sticky') continue;
-      const pv = this.ed.pageView(o.page)!;
-      this.ed.text.preview(id, this.dx, this.dy, this.s, b.x - pv.x - o.x, b.y - pv.y - o.y);
-    }
+  // Two-finger gesture on a selection (iPad): pinch to resize, twist to rotate, slide to move.
+  gestureStart(at: Pt): boolean {
+    if (!this.sel || !inRect(inflate(this.sel.bounds, 24 / this.ed.cam.z), at.x, at.y)) return false;
+    this.begin('gesture', at);
+    return true;
+  }
+  gestureUpdate(scale: number, angle: number, dx: number, dy: number) {
+    if (this.mode !== 'gesture') return;
+    this.xf.s = Math.min(8, Math.max(0.1, scale));
+    this.xf.a = snapAngle(angle);
+    this.xf.dx = dx;
+    this.xf.dy = dy;
+    this.ed.requestFrame();
+  }
+  gestureEnd() { if (this.mode === 'gesture') this.finish(); }
+
+  private finish() {
+    const t = this.xf;
+    this.mode = 'none';
+    this.ed.setHidden([]);
+    this.ed.text.hide([]);
+    const changed = Math.hypot(t.dx, t.dy) * this.ed.cam.z > 1 || Math.abs(t.s - 1) > 0.005 || Math.abs(t.a) > 0.002;
+    if (changed) this.commitTransform();
+    this.xf = { ...NO_XF };
+    this.refresh();
+    this.ed.requestFrame();
   }
 
   up(p: Sample) {
     this.move([p]);
     const mode = this.mode;
-    this.mode = 'none';
     if (mode === 'lasso') {
+      this.mode = 'none';
       let len = 0;
       for (let i = 1; i < this.poly.length; i++) len += Math.hypot(this.poly[i].x - this.poly[i - 1].x, this.poly[i].y - this.poly[i - 1].y);
       if (len * this.ed.cam.z < 8) this.selectAt(p);
       else this.selectPoly(this.poly);
       this.poly = [];
-    } else if (mode === 'move' || mode === 'scale') {
-      this.ed.setHidden([]);
-      this.ed.text.clearPreview();
-      const moved = mode === 'move' ? Math.hypot(this.dx, this.dy) * this.ed.cam.z > 1 : Math.abs(this.s - 1) > 0.005;
-      if (moved) this.commitTransform();
-      this.dx = this.dy = 0;
-      this.s = 1;
-      this.refresh();
-    }
-    this.ed.requestFrame();
+      this.ed.requestFrame();
+    } else if (mode !== 'none') this.finish();
   }
 
   cancel() {
-    if (this.mode === 'move' || this.mode === 'scale') { this.ed.setHidden([]); this.ed.text.clearPreview(); }
+    if (this.mode !== 'none' && this.mode !== 'lasso') { this.ed.setHidden([]); this.ed.text.hide([]); }
     this.mode = 'none';
-    this.dx = this.dy = 0;
-    this.s = 1;
+    this.xf = { ...NO_XF };
     this.poly = [];
     this.ed.requestFrame();
   }
@@ -340,23 +404,18 @@ export class LassoTool implements Tool {
 
   private commitTransform() {
     const sel = this.sel!;
-    const b = sel.bounds;
     const ops: Op[] = [];
-    const { dx, dy, s } = this;
+    const t = this.xf;
     for (const id of sel.ids) {
       const o = this.ed.doc.state.objects.get(id);
       if (!o) continue;
       const pv = this.ed.pageView(o.page)!;
-      const ax = b.x - pv.x, ay = b.y - pv.y;
-      const n = s !== 1
-        ? mapObj(o, (x) => ax + (x - ax) * s, (y) => ay + (y - ay) * s, s)
-        : mapObj(o, (x) => x + dx, (y) => y + dy, 1);
+      const n = xfObj(o, { ...t, px: t.px - pv.x, py: t.py - pv.y });
       // Dropped onto another page? Re-home the object there.
       const nb = objBounds(n);
       const target = this.ed.pageAt(pv.x + nb.x + nb.w / 2, pv.y + nb.y + nb.h / 2, false);
       if (target && target !== pv) {
-        const ox = pv.x - target.x, oy = pv.y - target.y;
-        const moved = { ...mapObj(n, (x) => x + ox, (y) => y + oy, 1), page: target.page.id };
+        const moved = { ...xfObj(n, { ...NO_XF, dx: pv.x - target.x, dy: pv.y - target.y }), page: target.page.id };
         ops.push({ t: 'remove', id }, { t: 'add', obj: moved });
       } else {
         ops.push({ t: 'update', id, patch: n });
@@ -370,29 +429,35 @@ export class LassoTool implements Tool {
     if (hit) this.setSel([hit.id]);
   }
 
+  /** Anything the lasso touches is selected whole, even if only part of it is inside. */
   private selectPoly(poly: Pt[]) {
     if (poly.length < 3) return;
     let pb: Rect | null = null;
     for (const q of poly) pb = union(pb, { x: q.x, y: q.y, w: 0, h: 0 });
+    const edges = poly.map((q, i) => [q, poly[(i + 1) % poly.length]] as const);
     const ids: string[] = [];
     for (const pv of this.ed.pages) {
       if (!intersects(pv.bounds, pb!)) continue;
       for (const o of this.ed.doc.state.objectsOn(pv.page.id)) {
         const b = objBounds(o);
-        if (!intersects({ x: b.x + pv.x, y: b.y + pv.y, w: b.w, h: b.h }, pb!)) continue;
-        let inside = 0, total = 0;
+        const wb = { x: b.x + pv.x, y: b.y + pv.y, w: b.w, h: b.h };
+        if (!intersects(wb, pb!)) continue;
+        let hit = false;
         if (o.kind === 'stroke') {
           const n = o.pts.length / 3;
-          const step = Math.max(1, Math.floor(n / 24));
-          for (let i = 0; i < n; i += step) {
-            total++;
-            if (pointInPolygon(o.pts[i * 3] + pv.x, o.pts[i * 3 + 1] + pv.y, poly)) inside++;
+          for (let i = 0; i < n && !hit; i++) {
+            const q = { x: o.pts[i * 3] + pv.x, y: o.pts[i * 3 + 1] + pv.y };
+            if (pointInPolygon(q.x, q.y, poly)) hit = true;
+            else if (i > 0) {
+              const prev = { x: o.pts[i * 3 - 3] + pv.x, y: o.pts[i * 3 - 2] + pv.y };
+              for (const [e0, e1] of edges) if (segsCross(prev, q, e0, e1)) { hit = true; break; }
+            }
           }
         } else {
-          const pts = [[b.x, b.y], [b.x + b.w, b.y], [b.x, b.y + b.h], [b.x + b.w, b.y + b.h], [b.x + b.w / 2, b.y + b.h / 2]];
-          for (const [x, y] of pts) { total++; if (pointInPolygon(x + pv.x, y + pv.y, poly)) inside++; }
+          const corners = [[wb.x, wb.y], [wb.x + wb.w, wb.y], [wb.x, wb.y + wb.h], [wb.x + wb.w, wb.y + wb.h], [wb.x + wb.w / 2, wb.y + wb.h / 2]];
+          hit = corners.some(([x, y]) => pointInPolygon(x, y, poly)) || poly.some((q) => inRect(wb, q.x, q.y));
         }
-        if (total && inside / total >= 0.5) ids.push(o.id);
+        if (hit) ids.push(o.id);
       }
     }
     if (ids.length) this.setSel(ids);
@@ -479,46 +544,86 @@ export class LassoTool implements Tool {
       ctx.beginPath();
       this.poly.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
       if (settings.lassoMode === 'rect') ctx.closePath();
-      ctx.fillStyle = 'rgba(217,119,6,0.07)';
+      ctx.fillStyle = 'rgba(79,124,246,0.07)';
       ctx.fill();
       ctx.setLineDash([5 / z, 4 / z]);
       ctx.lineWidth = 1.5 / z;
-      ctx.strokeStyle = '#c2620a';
+      ctx.strokeStyle = SEL;
       ctx.stroke();
       ctx.setLineDash([]);
       return;
     }
     if (!this.sel) return;
     const b = this.sel.bounds;
-    const dragging = this.mode === 'move' || this.mode === 'scale';
-    const T = (x: number, y: number): Pt =>
-      this.mode === 'scale' ? { x: b.x + (x - b.x) * this.s, y: b.y + (y - b.y) * this.s } : { x: x + this.dx, y: y + this.dy };
+    const t = this.xf;
+    const dragging = this.mode !== 'none' && this.mode !== 'lasso';
     if (dragging) {
       for (const o of this.objects()) {
-        if (o.kind === 'text' || o.kind === 'sticky') continue;
         const pv = ed.pageView(o.page)!;
         ed.pageTransform(ctx, pv, false);
-        const ax = b.x - pv.x, ay = b.y - pv.y;
-        if (this.mode === 'scale') { ctx.translate(ax, ay); ctx.scale(this.s, this.s); ctx.translate(-ax, -ay); }
-        else ctx.translate(this.dx, this.dy);
-        drawObject(ctx, o, { darkPaper: isDark(pv.page.paper) });
+        const local = { ...t, px: t.px - pv.x, py: t.py - pv.y };
+        const opts = { darkPaper: isDark(pv.page.paper), text: true };
+        if (o.kind === 'sticky') { drawObject(ctx, xfObj(o, local), opts); continue; }
+        ctx.translate(local.dx + local.px, local.dy + local.py);
+        ctx.rotate(local.a);
+        ctx.scale(local.s, local.s);
+        ctx.translate(-local.px, -local.py);
+        drawObject(ctx, o, opts);
       }
     }
     ed.worldTransform(ctx);
-    const a = T(b.x, b.y), c = T(b.x + b.w, b.y + b.h);
-    const pad = 6 / z;
+    const pad = this.pad();
+    const corners = [[b.x - pad, b.y - pad], [b.x + b.w + pad, b.y - pad], [b.x + b.w + pad, b.y + b.h + pad], [b.x - pad, b.y + b.h + pad]].map(([x, y]) => applyXf(t, x, y));
+    ctx.beginPath();
+    corners.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)));
+    ctx.closePath();
     ctx.setLineDash([6 / z, 4 / z]);
     ctx.lineWidth = 1.5 / z;
-    ctx.strokeStyle = '#c2620a';
-    ctx.strokeRect(a.x - pad, a.y - pad, c.x - a.x + 2 * pad, c.y - a.y + 2 * pad);
+    ctx.strokeStyle = SEL;
+    ctx.stroke();
     ctx.setLineDash([]);
+    // Resize dot (bottom-right).
     ctx.beginPath();
-    ctx.arc(c.x + pad, c.y + pad, 7 / z, 0, Math.PI * 2);
+    ctx.arc(corners[2].x, corners[2].y, 7 / z, 0, Math.PI * 2);
     ctx.fillStyle = '#fff';
     ctx.fill();
     ctx.lineWidth = 2 / z;
     ctx.stroke();
+    // Rotate handle (top-right): a filled dot with a curved arrow.
+    const r = corners[1];
+    ctx.beginPath();
+    ctx.arc(r.x, r.y, 9 / z, 0, Math.PI * 2);
+    ctx.fillStyle = SEL;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(r.x, r.y, 4.5 / z, -Math.PI * 0.9, Math.PI * 0.5);
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1.6 / z;
+    ctx.stroke();
+    ctx.beginPath();
+    const tip = { x: r.x + Math.cos(Math.PI * 0.5) * 4.5 / z, y: r.y + Math.sin(Math.PI * 0.5) * 4.5 / z };
+    ctx.moveTo(tip.x - 2.6 / z, tip.y - 0.4 / z);
+    ctx.lineTo(tip.x, tip.y);
+    ctx.lineTo(tip.x + 0.6 / z, tip.y - 2.6 / z);
+    ctx.stroke();
+    if (this.mode === 'rotate' || this.mode === 'gesture') {
+      // Show the angle while turning.
+      const deg = Math.round((t.a * 180) / Math.PI);
+      const c = applyXf(t, b.x + b.w / 2, b.y + b.h / 2);
+      ctx.font = `600 ${12 / z}px -apple-system, system-ui, sans-serif`;
+      const label = `${deg}°`;
+      const w = ctx.measureText(label).width + 12 / z;
+      ctx.fillStyle = 'rgba(28,28,30,0.82)';
+      ctx.beginPath();
+      ctx.roundRect(c.x - w / 2, c.y - 11 / z, w, 22 / z, 11 / z);
+      ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, c.x, c.y);
+    }
   }
+
 }
 
 // ---------------------------------------------------------------- text

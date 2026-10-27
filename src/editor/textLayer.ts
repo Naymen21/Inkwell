@@ -160,11 +160,12 @@ export class TextLayer {
     el.style.opacity = this.dimT != null && o.createdAt > this.dimT ? '0.18' : '';
   }
 
-  private style(el: HTMLDivElement, o: Pick<TextObj, 'x' | 'y' | 'w' | 'size' | 'color' | 'bold' | 'font'>) {
+  private style(el: HTMLDivElement, o: Pick<TextObj, 'x' | 'y' | 'w' | 'size' | 'color' | 'bold' | 'font' | 'rot'>) {
     Object.assign(el.style, {
       left: `${o.x}px`, top: `${o.y}px`, width: `${o.w}px`,
       fontSize: `${o.size}px`, lineHeight: String(TEXT_LINE), color: o.color,
       fontWeight: o.bold ? '700' : '400', fontFamily: FONTS[o.font],
+      transformOrigin: '50% 50%', transform: o.rot ? `rotate(${o.rot}rad)` : '',
     });
   }
 
@@ -252,15 +253,10 @@ export class TextLayer {
     else el.textContent = o.text;
   }
 
-  preview(id: string, dx: number, dy: number, s: number, ox: number, oy: number) {
-    const el = this.els.get(id);
-    if (!el) return;
-    el.style.transformOrigin = `${ox}px ${oy}px`;
-    el.style.transform = s !== 1 ? `scale(${s})` : `translate(${dx}px, ${dy}px)`;
-  }
-
-  clearPreview() {
-    for (const el of this.els.values()) el.style.transform = '';
+  /** While a selection is being moved/rotated the overlay draws it; hide the DOM copies. */
+  hide(ids: string[]) {
+    const set = new Set(ids);
+    for (const [id, el] of this.els) el.style.visibility = set.has(id) ? 'hidden' : '';
   }
 
   setDim(t: number | null) {
