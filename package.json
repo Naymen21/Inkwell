@@ -1,0 +1,22 @@
+{
+  "name": "inkwell",
+  "version": "1.0.0",
+  "description": "Notability-style handwritten notes for web + iPad",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host",
+    "test": "vitest run"
+  },
+  "type": "module",
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5"
+  },
+  "dependencies": {
+    "jspdf": "^4.2.1",
+    "pdfjs-dist": "^6.4.299"
+  },
+  "private": true
+}

@@ -1,0 +1,156 @@
+// Canvas drawing of paper and objects, in page coordinates. Used by the page
+// canvases, the live overlay, thumbnails and PDF export alike.
+import type { Rect } from '../util/geom';
+import { intersects } from '../util/geom';
+import { objBounds } from '../model/doc';
+import type { FontKind, Page, PageObject, StrokeObj, TextObj } from '../model/types';
+import { buildPath, fromFlat } from '../ink/stroke';
+import { media } from './media';
+
+const pathCache = new WeakMap<StrokeObj, Path2D>();
+
+export function strokePath(o: StrokeObj): Path2D {
+  let p = pathCache.get(o);
+  if (!p) {
+    p = new Path2D();
+    buildPath(p, fromFlat(o.pts));
+    pathCache.set(o, p);
+  }
+  return p;
+}
+
+export function isDark(color: string): boolean {
+  const m = /^#?([0-9a-f]{6})$/i.exec(color);
+  if (!m) return false;
+  const v = parseInt(m[1], 16);
+  const l = 0.2126 * ((v >> 16) & 255) + 0.7152 * ((v >> 8) & 255) + 0.0722 * (v & 255);
+  return l < 110;
+}
+
+export function drawPaper(ctx: CanvasRenderingContext2D, page: Page, r: Rect, scale: number) {
+  ctx.fillStyle = page.paper;
+  ctx.fillRect(r.x, r.y, r.w, r.h);
+  if (page.bg) {
+    const img = media.image(page.bg);
+    if (img) ctx.drawImage(img, 0, 0, page.w, page.h);
+  }
+  if (page.template === 'blank') return;
+  const dark = isDark(page.paper);
+  const line = dark ? 'rgba(255,255,255,0.16)' : 'rgba(70,120,190,0.28)';
+  const hair = Math.max(0.5 / scale, 0.45);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(r.x, r.y, r.w, r.h);
+  ctx.clip();
+  if (page.template === 'lined') {
+    const step = 26, top = 72;
+    ctx.strokeStyle = line;
+    ctx.lineWidth = hair;
+    ctx.beginPath();
+    for (let y = top; y < page.h; y += step) {
+      if (y < r.y - 1 || y > r.y + r.h + 1) continue;
+      ctx.moveTo(r.x, y); ctx.lineTo(r.x + r.w, y);
+    }
+    ctx.stroke();
+    ctx.strokeStyle = dark ? 'rgba(255,120,120,0.3)' : 'rgba(220,80,80,0.35)';
+    ctx.beginPath(); ctx.moveTo(64, r.y); ctx.lineTo(64, r.y + r.h); ctx.stroke();
+  } else if (page.template === 'grid') {
+    const step = 18;
+    ctx.strokeStyle = line;
+    ctx.lineWidth = hair;
+    ctx.beginPath();
+    for (let x = Math.ceil(r.x / step) * step; x <= r.x + r.w; x += step) { ctx.moveTo(x, r.y); ctx.lineTo(x, r.y + r.h); }
+    for (let y = Math.ceil(r.y / step) * step; y <= r.y + r.h; y += step) { ctx.moveTo(r.x, y); ctx.lineTo(r.x + r.w, y); }
+    ctx.stroke();
+  } else if (page.template === 'dotted') {
+    const step = 18, d = 0.9;
+    ctx.fillStyle = dark ? 'rgba(255,255,255,0.3)' : 'rgba(60,80,110,0.4)';
+    for (let x = Math.ceil(r.x / step) * step; x <= r.x + r.w; x += step)
+      for (let y = Math.ceil(r.y / step) * step; y <= r.y + r.h; y += step) ctx.fillRect(x - d / 2, y - d / 2, d, d);
+  }
+  ctx.restore();
+}
+
+export interface DrawOpts {
+  hidden?: Set<string>;
+  /** Draw text objects onto the canvas (export/thumbnails); normally text is DOM. */
+  text?: boolean;
+  /** Playback: objects created after this timeline time are drawn faded. */
+  dimAfter?: number | null;
+  darkPaper?: boolean;
+}
+
+export function drawObject(ctx: CanvasRenderingContext2D, o: PageObject, opts: DrawOpts = {}) {
+  const fade = opts.dimAfter != null && o.createdAt > opts.dimAfter ? 0.18 : 1;
+  ctx.globalAlpha = fade;
+  if (o.kind === 'stroke') {
+    ctx.fillStyle = o.color;
+    ctx.globalAlpha = o.opacity * fade;
+    if (o.tool === 'highlighter' && !opts.darkPaper) ctx.globalCompositeOperation = 'multiply';
+    ctx.fill(strokePath(o));
+    ctx.globalCompositeOperation = 'source-over';
+  } else if (o.kind === 'image') {
+    const img = media.image(o.media);
+    if (img) ctx.drawImage(img, o.x, o.y, o.w, o.h);
+    else { ctx.fillStyle = 'rgba(128,128,128,0.15)'; ctx.fillRect(o.x, o.y, o.w, o.h); }
+  } else if (o.kind === 'text' && opts.text) {
+    drawText(ctx, o);
+  }
+  ctx.globalAlpha = 1;
+}
+
+/** Images, then highlighters, then ink: highlights sit behind writing. */
+export function drawObjects(ctx: CanvasRenderingContext2D, objs: PageObject[], clip: Rect | null, opts: DrawOpts) {
+  const pass = (o: PageObject) => (o.kind === 'image' ? 0 : o.kind === 'stroke' && o.tool === 'highlighter' ? 1 : 2);
+  for (let p = 0; p < 3; p++) {
+    for (const o of objs) {
+      if (pass(o) !== p || opts.hidden?.has(o.id)) continue;
+      if (clip && !intersects(clip, objBounds(o))) continue;
+      drawObject(ctx, o, opts);
+    }
+  }
+}
+
+export const FONTS: Record<FontKind, string> = {
+  sans: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+  serif: '"New York", "Iowan Old Style", Georgia, "Times New Roman", serif',
+  mono: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace',
+  hand: '"Bradley Hand", "Segoe Print", "Comic Sans MS", cursive',
+};
+
+export const TEXT_LINE = 1.3;
+
+export function drawText(ctx: CanvasRenderingContext2D, o: TextObj) {
+  ctx.fillStyle = o.color;
+  ctx.font = `${o.bold ? 'bold ' : ''}${o.size}px ${FONTS[o.font]}`;
+  ctx.textBaseline = 'top';
+  const lh = o.size * TEXT_LINE;
+  let y = o.y + (lh - o.size) / 2;
+  for (const para of o.text.split('\n')) {
+    const words = para.split(/(\s+)/);
+    let line = '';
+    for (const w of words) {
+      const test = line + w;
+      if (line && ctx.measureText(test).width > o.w) {
+        ctx.fillText(line.trimEnd(), o.x, y);
+        y += lh;
+        line = w.trimStart();
+      } else line = test;
+    }
+    ctx.fillText(line, o.x, y);
+    y += lh;
+  }
+}
+
+/** Render a whole page into a fresh canvas (thumbnails, export). */
+export function renderPageToCanvas(page: Page, objs: PageObject[], scale: number): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(page.w * scale));
+  c.height = Math.max(1, Math.round(page.h * scale));
+  const ctx = c.getContext('2d')!;
+  ctx.setTransform(scale, 0, 0, scale, 0, 0);
+  const all = { x: 0, y: 0, w: page.w, h: page.h };
+  drawPaper(ctx, page, all, scale);
+  drawObjects(ctx, objs, null, { text: true, darkPaper: isDark(page.paper) });
+  return c;
+}

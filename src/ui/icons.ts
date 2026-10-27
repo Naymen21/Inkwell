@@ -1,0 +1,38 @@
+// Inline stroke icons (24px grid, currentColor).
+const svg = (body: string) =>
+  `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+
+export const icons = {
+  back: svg('<path d="M15 18l-6-6 6-6"/>'),
+  pen: svg('<path d="M4 20l1.2-4.6L16.5 4.1a2 2 0 012.8 0l.6.6a2 2 0 010 2.8L8.6 18.8z"/><path d="M14.5 6.1l3.4 3.4"/>'),
+  highlighter: svg('<path d="M9 15l-4 4h5l2-2"/><path d="M8.5 12.5l3 3L20 7a2.1 2.1 0 00-3-3z"/>'),
+  eraser: svg('<path d="M7 20h11"/><path d="M5.6 14.6l8.8-8.8a2 2 0 012.8 0l2.9 2.9a2 2 0 010 2.8L13 18.6a2 2 0 01-1.4.6H9.4a2 2 0 01-1.4-.6l-2.4-2.4a2 2 0 010-2.8z"/><path d="M9.5 10.7l5.6 5.6"/>'),
+  lasso: svg('<path d="M7 17.5C4.6 16.2 3 14.2 3 12c0-4.4 4-8 9-8s9 3.6 9 8-4 8-9 8c-.9 0-1.8-.1-2.6-.3" stroke-dasharray="2.2 2.6"/><circle cx="7.5" cy="18.5" r="1.6"/><path d="M8 20c-.5 1.2-1.6 1.9-3 2"/>'),
+  shape: svg('<circle cx="8" cy="8" r="4.5"/><rect x="11" y="11" width="9" height="9" rx="1"/>'),
+  text: svg('<path d="M5 6V4.5h14V6"/><path d="M12 4.5V20"/><path d="M9 20h6"/>'),
+  image: svg('<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.8"/><path d="M21 16l-5-5-9 9"/>'),
+  undo: svg('<path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 010 11H11"/>'),
+  redo: svg('<path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 000 11H13"/>'),
+  mic: svg('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0014 0"/><path d="M12 18v3"/>'),
+  stop: svg('<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/>'),
+  play: svg('<path d="M7 4.5v15l12-7.5z" fill="currentColor"/>'),
+  pause: svg('<rect x="6" y="4.5" width="4" height="15" rx="1" fill="currentColor"/><rect x="14" y="4.5" width="4" height="15" rx="1" fill="currentColor"/>'),
+  more: svg('<circle cx="5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="19" cy="12" r="1.3" fill="currentColor"/>'),
+  close: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
+  plus: svg('<path d="M12 5v14M5 12h14"/>'),
+  trash: svg('<path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 12a2 2 0 002 2h6a2 2 0 002-2l1-12"/><path d="M9 7V4h6v3"/>'),
+  copy: svg('<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 012-2h9"/>'),
+  duplicate: svg('<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M14 11v6M11 14h6"/><path d="M4 16V6a2 2 0 012-2h10"/>'),
+  search: svg('<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/>'),
+  folder: svg('<path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>'),
+  notes: svg('<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/>'),
+  inbox: svg('<path d="M3 13l3-8h12l3 8v6a1 1 0 01-1 1H4a1 1 0 01-1-1z"/><path d="M3 13h5l1 2h6l1-2h5"/>'),
+  menu: svg('<path d="M4 7h16M4 12h16M4 17h16"/>'),
+  download: svg('<path d="M12 4v11"/><path d="M7 10l5 5 5-5"/><path d="M5 20h14"/>'),
+  upload: svg('<path d="M12 20V9"/><path d="M7 14l5-5 5 5"/><path d="M5 4h14"/>'),
+  page: svg('<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5"/>'),
+  palette: svg('<path d="M12 3a9 9 0 100 18c1 0 1.6-.8 1.6-1.6 0-.5-.2-.8-.5-1.2-.3-.3-.5-.7-.5-1.2 0-.9.7-1.6 1.6-1.6H16a5 5 0 005-5c0-4-4-7.4-9-7.4z"/><circle cx="7.5" cy="11.5" r="1" fill="currentColor"/><circle cx="10.5" cy="7.5" r="1" fill="currentColor"/><circle cx="15.5" cy="8" r="1" fill="currentColor"/>'),
+  waveform: svg('<path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2"/>'),
+  restore: svg('<path d="M3 12a9 9 0 109-9 9.7 9.7 0 00-6.7 2.8L3 8"/><path d="M3 3v5h5"/>'),
+  check: svg('<path d="M5 12.5l4.5 4.5L19 7.5"/>'),
+};
