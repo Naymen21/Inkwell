@@ -849,3 +849,19 @@ button:not(:disabled):active { transform: scale(0.95); }
 .brand { font-family: var(--font); font-weight: 700; font-size: 19px; letter-spacing: -0.02em; color: var(--text); gap: 10px; }
 .brand-mark { width: 30px; height: 30px; border-radius: 8px; background: linear-gradient(160deg, #6f91ff 0%, #4a5ce8 55%, #3d44cf 100%); box-shadow: 0 1px 0 rgba(255, 255, 255, 0.35) inset, 0 2px 6px rgba(61, 74, 214, 0.35); }
 .brand-mark svg { width: 22px; height: 22px; }
+
+/* Dragging notes into folders */
+.card { touch-action: pan-y; -webkit-user-drag: none; }
+.card img { -webkit-user-drag: none; pointer-events: none; }
+.card.drag-source { opacity: 0.35; }
+.drag-ghost {
+  position: fixed; left: 0; top: 0; z-index: 300; width: 120px; pointer-events: none;
+  background: var(--panel); border-radius: 12px; padding: 8px; display: flex; flex-direction: column; gap: 6px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.25); transition: none;
+}
+.drag-ghost .card-thumb { width: 100%; aspect-ratio: 1 / 0.86; border-radius: 6px; overflow: hidden; }
+.drag-ghost .card-thumb img { width: 100%; height: 100%; object-fit: cover; object-position: top; }
+.ghost-title { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body.dragging-note, body.dragging-note * { cursor: grabbing !important; -webkit-user-select: none; user-select: none; }
+.nav-item[data-drop] { transition: background-color 0.12s, box-shadow 0.12s; }
+.nav-item.drop-hover { background: var(--accent-soft) !important; color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }

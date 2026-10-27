@@ -8,6 +8,7 @@ import { busy, confirmBox, esc, menu, promptText, toast } from '../ui/modal';
 import { openSettings } from '../ui/settingsPanel';
 import { uid } from '../util/ids';
 import { pickFiles } from '../ui/pickFiles';
+import { makeDraggable } from './dragNotes';
 
 type Filter = 'all' | 'unfiled' | 'trash' | string;
 type Sort = 'modified' | 'created' | 'title';
@@ -135,6 +136,8 @@ export async function renderLibrary(mount: HTMLElement, open: (id: string) => vo
     const item = (f: Filter, icon: string, label: string, count?: number, cls = '') => {
       const b = h('button', `nav-item ${cls}${state.filter === f ? ' on' : ''}`, `<span class="ni-icon">${icon}</span><span class="ni-label">${esc(label)}</span>${count != null ? `<span class="ni-count">${count}</span>` : ''}`);
       b.onclick = () => setFilter(f);
+      // Every destination except "all notes" accepts a dragged note.
+      if (f !== 'all') b.dataset.drop = f;
       return b;
     };
     nav.append(item('all', icons.nbNotes, 'Notes', live().length));
@@ -283,9 +286,35 @@ export async function renderLibrary(mount: HTMLElement, open: (id: string) => vo
       meta.append(more);
       card.append(tile, meta);
       card.onclick = () => { if (!n.trashed) open(n.id); else noteMenu(n, more); };
+      if (!n.trashed) {
+        makeDraggable(card, () => {
+          const g = h('div', 'card-ghost');
+          g.append(thumb.cloneNode(true), h('span', 'ghost-title', esc(n.title)));
+          return g;
+        }, {
+          onStart: () => { if (window.innerWidth <= 760) root.classList.add('side-open'); },
+          onDrop: (target) => dropNote(n, target),
+        });
+      }
       card.onkeydown = (e) => { if (e.key === 'Enter') card.click(); };
       grid.append(card);
     }
+  }
+
+  async function dropNote(n: NoteMeta, target: string) {
+    root.classList.remove('side-open');
+    try {
+      if (target === 'trash') {
+        await db.putNote({ ...n, trashed: Date.now() });
+        toast(`Moved “${n.title}” to Recently deleted`);
+      } else {
+        const folder = target === 'unfiled' ? null : target;
+        if (folder === n.folder) return;
+        await db.putNote({ ...n, folder });
+        toast(`Moved “${n.title}” to ${folder ? folderOf(folder)?.name ?? 'folder' : 'Unfiled'}`);
+      }
+    } catch (e) { storageFailed(e); return; }
+    reload();
   }
 
   function noteMenu(n: NoteMeta, anchor: HTMLElement) {
