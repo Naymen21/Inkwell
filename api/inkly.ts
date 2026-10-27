@@ -5,12 +5,13 @@
 //   INKLY_PASSCODE   optional — if set, requests must send it (x-inkly-passcode)
 //   INKLY_MODEL      optional — defaults to the latest Gemini Flash
 
-const MAX_BODY = 18_000_000; // Gemini takes up to 20 MB of inline data per request
+const MAX_BODY = 4_400_000; // Vercel rejects request bodies over ~4.5 MB
 const MAX_IMAGES = 100; // "Whole note" sends every page that needs a picture
+const FILES = 'https://generativelanguage.googleapis.com/';
 const MAX_TEXT = 200_000;
 
 type Turn = { role: 'user' | 'assistant'; content: string };
-type Part = { text: string } | { inline_data: { mime_type: string; data: string } };
+type Part = { text: string } | { inline_data: { mime_type: string; data: string } } | { file_data: { mime_type: string; file_uri: string } };
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
@@ -50,8 +51,10 @@ export async function POST(req: Request) {
   if (pass && req.headers.get('x-inkly-passcode') !== pass) return json({ code: 'passcode', message: 'Wrong or missing passcode' }, 401);
   if (Number(req.headers.get('content-length') ?? 0) > MAX_BODY) return json({ code: 'prompt_too_large', message: 'Request too large' }, 413);
 
+  if (new URL(req.url).searchParams.has('upload')) return upload(req, key);
+
   const t0 = Date.now();
-  let body: { turns?: Turn[]; images?: string[]; speed?: 'fast' | 'quality'; timing?: unknown };
+  let body: { turns?: Turn[]; images?: string[]; files?: string[]; speed?: 'fast' | 'quality'; timing?: unknown };
   try { body = await req.json(); } catch { return json({ code: 'invalid_request', message: 'Body must be JSON' }, 400); }
   const turns = Array.isArray(body.turns) ? body.turns.slice(-40) : [];
   const images = Array.isArray(body.images) ? body.images.slice(0, MAX_IMAGES) : [];
@@ -70,6 +73,11 @@ export async function POST(req: Request) {
   for (const data of images) {
     if (typeof data === 'string' && /^[A-Za-z0-9+/=]+$/.test(data)) lastUser.parts.push({ inline_data: { mime_type: 'image/jpeg', data } });
   }
+  // Pictures uploaded earlier (?upload) for notes too big to send in one request.
+  const files = Array.isArray(body.files) ? body.files.slice(0, MAX_IMAGES - images.length) : [];
+  for (const uri of files) {
+    if (typeof uri === 'string' && uri.startsWith(FILES)) lastUser.parts.push({ file_data: { mime_type: 'image/jpeg', file_uri: uri } });
+  }
 
   // Free-tier models get overloaded at times; fall through to the next one
   // when a model is busy (503), out of quota (429) or not offered (404).
@@ -82,7 +90,7 @@ export async function POST(req: Request) {
   const models = ready.length ? ready : order;
   const attempts: { model: string; status: number; ms: number }[] = [];
   const bytes = Number(req.headers.get('content-length') ?? 0);
-  const log = (extra: object) => console.log(JSON.stringify({ inkly: { speed: body.speed ?? 'fast', images: images.length, kb: Math.round(bytes / 1024), upMs: t0 - start, device: body.timing, attempts, ...extra } }));
+  const log = (extra: object) => console.log(JSON.stringify({ inkly: { speed: body.speed ?? 'fast', images: images.length, files: files.length, kb: Math.round(bytes / 1024), upMs: t0 - start, device: body.timing, attempts, ...extra } }));
   const base = { temperature: 0.4, maxOutputTokens: 8192 };
   const call = (model: string, generationConfig: object) =>
     fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`, {
@@ -121,4 +129,39 @@ export async function POST(req: Request) {
   const retry = /"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/.exec(last.detail);
   const daily = s === 429 && /PerDay/i.test(last.detail);
   return json({ code, message: last.detail.slice(0, 300), retryAfter: retry ? Math.ceil(Number(retry[1])) : undefined, daily }, s === 429 ? 429 : 502);
+}
+
+/**
+ * POST ?upload {images: base64 JPEG[]}: store page pictures with Gemini's
+ * Files API (kept 48 h) and return their URIs, so a long note's pictures can
+ * reach Gemini in several small requests and be reused by follow-up questions.
+ */
+async function upload(req: Request, key: string) {
+  let body: { images?: string[] };
+  try { body = await req.json(); } catch { return json({ code: 'invalid_request', message: 'Body must be JSON' }, 400); }
+  const images = (Array.isArray(body.images) ? body.images : []).slice(0, MAX_IMAGES).filter((d) => typeof d === 'string' && /^[A-Za-z0-9+/=]+$/.test(d));
+  try {
+    const uris = await Promise.all(images.map(async (b64) => {
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      const start = await fetch(`${FILES}upload/v1beta/files`, {
+        method: 'POST',
+        headers: {
+          'x-goog-api-key': key, 'content-type': 'application/json',
+          'x-goog-upload-protocol': 'resumable', 'x-goog-upload-command': 'start',
+          'x-goog-upload-header-content-length': String(bytes.length), 'x-goog-upload-header-content-type': 'image/jpeg',
+        },
+        body: JSON.stringify({ file: { display_name: 'inkly-page' } }),
+      });
+      const url = start.headers.get('x-goog-upload-url');
+      if (!start.ok || !url) throw new Error(`start ${start.status}`);
+      const done = await fetch(url, { method: 'POST', headers: { 'x-goog-upload-offset': '0', 'x-goog-upload-command': 'upload, finalize' }, body: bytes });
+      const f = (await done.json().catch(() => ({}))) as { file?: { uri?: string } };
+      if (!done.ok || !f.file?.uri) throw new Error(`upload ${done.status}`);
+      return f.file.uri;
+    }));
+    return json({ uris });
+  } catch (e) {
+    console.log(JSON.stringify({ inkly: { uploadFailed: String(e) } }));
+    return json({ code: 'upstream_error', message: 'Could not upload the page pictures' }, 502);
+  }
 }

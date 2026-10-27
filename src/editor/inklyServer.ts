@@ -17,12 +17,53 @@ const PASS_KEY = 'inkwell.inklyPasscode';
 export const getPasscode = () => { try { return localStorage.getItem(PASS_KEY) ?? ''; } catch { return ''; } };
 export const setPasscode = (v: string) => { try { localStorage.setItem(PASS_KEY, v); } catch { /* blocked */ } };
 
-const toBase64 = (b: Blob) => new Promise<string>((res, rej) => {
-  const r = new FileReader();
-  r.onload = () => res(String(r.result).split(',')[1] ?? '');
-  r.onerror = () => rej(r.error);
-  r.readAsDataURL(b);
-});
+const toBase64 = async (b: Blob) => {
+  const u = new Uint8Array(await b.arrayBuffer());
+  let s = '';
+  for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode(...u.subarray(i, i + 0x8000));
+  return btoa(s);
+};
+
+/** One request must stay under Vercel's ~4.5 MB body limit. */
+const BATCH = 3_400_000;
+/** Pictures already stored with Gemini (kept 48 h; reused for 40 h). */
+const uploaded = new WeakMap<Blob, { uri: string; until: number }>();
+
+/**
+ * Store pictures with Gemini through ?upload, a few at a time, and return
+ * their URIs in order. Pictures uploaded for an earlier question are reused.
+ */
+async function uploadAll(blobs: Blob[], b64: string[], signal?: AbortSignal): Promise<string[]> {
+  const now = Date.now();
+  const uris: string[] = blobs.map((b) => { const u = uploaded.get(b); return u && u.until > now ? u.uri : ''; });
+  const todo = blobs.map((_, i) => i).filter((i) => !uris[i]);
+  const batches: number[][] = [];
+  let cur: number[] = [], size = 0;
+  for (const i of todo) {
+    if (cur.length && size + b64[i].length > BATCH) { batches.push(cur); cur = []; size = 0; }
+    cur.push(i);
+    size += b64[i].length;
+  }
+  if (cur.length) batches.push(cur);
+  // A few batches in parallel: faster than one by one, gentle on the function.
+  let next = 0;
+  const worker = async () => {
+    while (next < batches.length) {
+      const batch = batches[next++];
+      const r = await fetch('./api/inkly?upload', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-inkly-passcode': getPasscode() },
+        body: JSON.stringify({ images: batch.map((i) => b64[i]) }),
+        signal,
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !Array.isArray(j.uris)) throw { code: j.code ?? 'upstream_error', message: j.message ?? 'Upload failed' };
+      batch.forEach((i, k) => { uris[i] = j.uris[k]; uploaded.set(blobs[i], { uri: j.uris[k], until: Date.now() + 40 * 3600_000 }); });
+    }
+  };
+  await Promise.all([worker(), worker(), worker()]);
+  return uris;
+}
 
 /** Probe the function; null when this deployment has no AI backend. */
 export async function serverBackend(): Promise<InklyBackend | null> {
@@ -35,18 +76,24 @@ export async function serverBackend(): Promise<InklyBackend | null> {
   if (!info.ok) return null;
 
   const fn = (async (input, opts = {}) => {
-    const images = await Promise.all((opts.images ?? []).slice(0, MAX_IMAGES).map(toBase64));
+    const blobs = (opts.images ?? []).slice(0, MAX_IMAGES);
+    let images = await Promise.all(blobs.map(toBase64));
+    let files: string[] = [];
     let text = '';
     let res: Response;
     try {
+      // Too big for one request (long note): upload the pictures first, then ask.
+      const total = images.reduce((n, s) => n + s.length, 0) + JSON.stringify(input).length;
+      if (total > BATCH) { files = await uploadAll(blobs, images, opts.signal); images = []; }
       res = await fetch('./api/inkly', {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-inkly-passcode': getPasscode() },
-        body: JSON.stringify({ turns: input, images, speed: opts.speed ?? 'fast', timing: opts.timing }),
+        body: JSON.stringify({ turns: input, images, files, speed: opts.speed ?? 'fast', timing: opts.timing }),
         signal: opts.signal,
       });
-    } catch {
-      throw opts.signal?.aborted ? { code: 'cancelled' } : { code: 'upstream_error', message: 'Network error' };
+    } catch (e) {
+      if (opts.signal?.aborted) throw { code: 'cancelled' };
+      throw (e as { code?: string }).code ? e : { code: 'upstream_error', message: 'Network error' };
     }
     if (!res.ok || !res.body) {
       const e = await res.json().catch(() => ({}));
