@@ -51,7 +51,7 @@ export async function POST(req: Request) {
   if (Number(req.headers.get('content-length') ?? 0) > MAX_BODY) return json({ code: 'prompt_too_large', message: 'Request too large' }, 413);
 
   const t0 = Date.now();
-  let body: { turns?: Turn[]; images?: string[]; speed?: 'fast' | 'quality' };
+  let body: { turns?: Turn[]; images?: string[]; speed?: 'fast' | 'quality'; timing?: unknown };
   try { body = await req.json(); } catch { return json({ code: 'invalid_request', message: 'Body must be JSON' }, 400); }
   const turns = Array.isArray(body.turns) ? body.turns.slice(-40) : [];
   const images = Array.isArray(body.images) ? body.images.slice(0, MAX_IMAGES) : [];
@@ -81,7 +81,8 @@ export async function POST(req: Request) {
   const ready = order.filter((m) => (cooling.get(m) ?? 0) < now);
   const models = ready.length ? ready : order;
   const attempts: { model: string; status: number; ms: number }[] = [];
-  const log = (extra: object) => console.log(JSON.stringify({ inkly: { speed: body.speed ?? 'fast', images: images.length, upMs: t0 - start, attempts, ...extra } }));
+  const bytes = Number(req.headers.get('content-length') ?? 0);
+  const log = (extra: object) => console.log(JSON.stringify({ inkly: { speed: body.speed ?? 'fast', images: images.length, kb: Math.round(bytes / 1024), upMs: t0 - start, device: body.timing, attempts, ...extra } }));
   const base = { temperature: 0.4, maxOutputTokens: 8192 };
   const call = (model: string, generationConfig: object) =>
     fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`, {

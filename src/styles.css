@@ -890,3 +890,5 @@ body.dragging-note, body.dragging-note * { cursor: grabbing !important; -webkit-
 .num-field { width: 76px; height: 34px; border-radius: 9px; border: 1px solid var(--line); background: var(--panel); padding: 0 8px; text-align: right; font-variant-numeric: tabular-nums; -webkit-user-select: text; user-select: text; }
 .inkly-title { min-width: 0; flex-wrap: wrap; row-gap: 5px; }
 .inkly-head .icon-btn { flex: none; }
+
+.inkly-status { font-size: 13px; color: var(--muted); margin: 0 0 2px !important; }

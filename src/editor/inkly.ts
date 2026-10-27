@@ -79,6 +79,9 @@ const ERRORS: Record<string, string> = {
   upstream_error: 'Connection hiccup. Try again.',
 };
 
+/** Device-side timings of the previous answer, reported with the next request. */
+let lastTiming: Record<string, number> | null = null;
+
 const objIds = new WeakMap<object, number>();
 let nextObjId = 1;
 /** A key that changes whenever an object is replaced by an edit. */
@@ -138,6 +141,7 @@ export class InklyPanel {
 
   toggle(open = !this.isOpen) {
     this.el.classList.toggle('open', open);
+    if (open) this.prewarm();
     if (open && this.ready && !this.sample) getSample().then((s) => { if (s) { this.sample = s; this.renderLog(); } });
     if (open) setTimeout(() => { if (matchMedia('(pointer: fine)').matches) this.input.focus(); }, 250);
   }
@@ -313,6 +317,36 @@ export class InklyPanel {
   }
 
   private pageImages = new Map<string, { sig: string; blob: Blob }>();
+  private onStatus: ((s: string) => void) | null = null;
+
+  /** One page as a small JPEG for the AI, cached until the page changes. */
+  private async pageImage(p: Page): Promise<Blob | null> {
+    const objs = this.ed.doc.state.objectsOn(p.id);
+    // Objects are replaced (never mutated) on change, so their identities describe the page.
+    const sig = `${p.bg ?? ''}|${p.template}|${p.paper}|${objs.map((o) => objectKey(o)).join(',')}`;
+    const hit = this.pageImages.get(p.id);
+    if (hit && hit.sig === sig) return hit.blob;
+    if (p.bg) await media.ready(p.bg);
+    for (const o of objs) if (o.kind === 'image') await media.ready(o.media);
+    // ~0.6 MP is plenty to read handwriting.
+    const c = renderPageToCanvas(p, objs, Math.sqrt(600_000 / (p.w * p.h)));
+    const blob = await new Promise<Blob | null>((r) => c.toBlob(r, 'image/jpeg', 0.8));
+    c.width = c.height = 0;
+    if (blob) this.pageImages.set(p.id, { sig, blob });
+    return blob;
+  }
+
+  /** Render page pictures in idle time after the panel opens, so asking doesn't wait for it. */
+  private prewarm() {
+    const st = this.ed.doc.state;
+    const visual = this.scopePages('note').filter((p) => p.bg || st.objectsOn(p.id).some((o) => o.kind !== 'text')).slice(0, 8);
+    const idle = (fn: () => void) => ('requestIdleCallback' in window ? (window as unknown as { requestIdleCallback(f: () => void, o: object): void }).requestIdleCallback(fn, { timeout: 1500 }) : setTimeout(fn, 200));
+    const next = (i: number) => {
+      if (i >= visual.length || this.busy) return;
+      idle(() => { this.pageImage(visual[i]).finally(() => next(i + 1)); });
+    };
+    next(0);
+  }
 
   private async gather(scope: 'page' | 'note', maxImages: number) {
     const st = this.ed.doc.state;
@@ -329,19 +363,10 @@ export class InklyPanel {
     if (visual.length > imgPages.length) parts.push(`(Only the first ${imgPages.length} of ${visual.length} handwritten pages are attached as images.)`);
     if (!pages.length) parts.push('(The note is empty so far.)');
     const images: Blob[] = [];
+    this.onStatus?.(imgPages.length ? `Reading ${imgPages.length === 1 ? 'your page' : `${imgPages.length} pages`}…` : 'Reading your note…');
     for (const p of imgPages) {
-      const objs = st.objectsOn(p.id);
-      // Objects are replaced (never mutated) on change, so their identities describe the page.
-      const sig = `${p.bg ?? ''}|${p.template}|${p.paper}|${objs.map((o) => objectKey(o)).join(',')}`;
-      const hit = this.pageImages.get(p.id);
-      if (hit && hit.sig === sig) { images.push(hit.blob); continue; }
-      if (p.bg) await media.ready(p.bg);
-      for (const o of objs) if (o.kind === 'image') await media.ready(o.media);
-      // ~0.6 MP is plenty to read handwriting and uploads about half as much as before.
-      const c = renderPageToCanvas(p, objs, Math.sqrt(600_000 / (p.w * p.h)));
-      const blob = await new Promise<Blob | null>((r) => c.toBlob(r, 'image/jpeg', 0.8));
-      c.width = c.height = 0;
-      if (blob) { images.push(blob); this.pageImages.set(p.id, { sig, blob }); }
+      const blob = await this.pageImage(p);
+      if (blob) images.push(blob);
     }
     if (images.length) parts.push(`Attached: ${images.length} page image${images.length > 1 ? 's' : ''}, in order (${imgPages.map((p) => `page ${all.indexOf(p) + 1}`).join(', ')}).`);
     return { text: parts.join('\n\n'), images };
@@ -360,8 +385,13 @@ export class InklyPanel {
     this.renderLog();
     const bubble = () => this.log.querySelectorAll('.inkly-msg.bot .bubble')[this.log.querySelectorAll('.inkly-msg.bot .bubble').length - 1] as HTMLElement | undefined;
     try {
+      const tAsk = performance.now();
+      this.onStatus = (s) => { const b = bubble(); if (b && !bot.content) b.innerHTML = `<p class="inkly-status">${esc(s)}</p><p class="thinking"><span></span><span></span><span></span></p>`; };
       const limits = await sample.limits().catch(() => null);
       const ctx = await this.gather(scope, limits?.images?.maxCount ?? 0);
+      const tReady = performance.now();
+      this.onStatus('Thinking…');
+      let tFirst = 0;
       // Standing instructions + note context lead; history keeps the last turns.
       const history = this.turns.slice(0, -2).filter((t) => !t.failed && t.content).slice(-12).map((t) => ({ role: t.role, content: t.content }));
       const input = [
@@ -373,10 +403,13 @@ export class InklyPanel {
       const { text, truncated } = await sample(input, {
         signal: ctl.signal,
         cache: false,
-        ...(this.sample?.provider === 'Claude' ? {} : { speed: deep ? 'quality' : 'fast' }),
+        // timing: device-side times, logged by the server so slow steps can be found.
+        ...(this.sample?.provider === 'Claude' ? {} : { speed: deep ? 'quality' : 'fast', timing: { prepareMs: Math.round(tReady - tAsk), last: lastTiming } }),
         ...(ctx.images.length ? { images: ctx.images } : {}),
-        onText: ({ text }: { text: string }) => { bot.content = text; const b = bubble(); if (b) b.innerHTML = renderMd(text); this.log.scrollTop = this.log.scrollHeight; },
+        onText: ({ text }: { text: string }) => { if (!tFirst) tFirst = performance.now(); bot.content = text; const b = bubble(); if (b) b.innerHTML = renderMd(text); this.log.scrollTop = this.log.scrollHeight; },
+
       });
+      lastTiming = { prepareMs: Math.round(tReady - tAsk), firstTextMs: Math.round(tFirst - tAsk), totalMs: Math.round(performance.now() - tAsk), images: ctx.images.length };
       bot.content = text + (truncated ? '\n\n_(Cut short — ask for a smaller piece.)_' : '');
       if (this.metered) this.credits.spend();
     } catch (e) {
@@ -394,6 +427,7 @@ export class InklyPanel {
       }
       if (!bot.content) this.turns.splice(this.turns.indexOf(user), 2);
     } finally {
+      this.onStatus = null;
       this.busy = null;
       this.save();
       this.renderLog();
