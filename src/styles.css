@@ -659,3 +659,7 @@ button:not(:disabled):active { transform: scale(0.95); }
   .ask-inkly { padding: 0 6px; }
   .inkly { top: calc(150px + env(safe-area-inset-top)); }
 }
+
+.inkly-via { font: 600 11.5px/1 var(--font); color: var(--muted); margin-left: 2px; }
+.inkly-pass { display: flex; gap: 8px; align-items: center; padding-left: 39px; }
+.inkly-pass .field { height: 36px; }

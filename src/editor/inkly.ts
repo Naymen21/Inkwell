@@ -9,6 +9,7 @@ import { icons } from '../ui/icons';
 import { esc } from '../ui/modal';
 import { uid } from '../util/ids';
 import { useCapability } from '../util/claude';
+import { serverBackend, setPasscode } from './inklyServer';
 import type { Editor } from './editor';
 import { newPage } from './editor';
 
@@ -19,13 +20,25 @@ type SampleErr = { code?: string; message?: string; text?: string };
 interface SampleFn {
   (input: string | { role: Role; content: string }[], opts?: Record<string, unknown>): Promise<{ text: string; truncated: boolean }>;
   limits(): Promise<{ maxPromptBytes: number; images?: { maxCount: number } }>;
+  provider?: string;
 }
 
 /** Where people open the claude.ai-hosted copy (set after publishing). */
 export const CLAUDE_COPY_URL = 'https://claude.ai/artifact/A6PyChCAAxJhTwABrX5ND6';
 
+// Inside Claude, Inkly runs on the viewer's Claude plan; anywhere else it uses
+// this deployment's own /api/inkly function (Gemini), if one is configured.
 let samplePromise: Promise<SampleFn | null> | null = null;
-const getSample = () => (samplePromise ??= useCapability<SampleFn>('sample'));
+const getSample = () => (samplePromise ??= useCapability<SampleFn>('sample').then(async (s) => {
+  if (s) {
+    // The platform's function is frozen; wrap it rather than tagging it.
+    const w = ((input, opts) => s(input, opts)) as SampleFn;
+    w.limits = () => s.limits();
+    w.provider = 'Claude';
+    return w;
+  }
+  return (await serverBackend()) as SampleFn | null;
+}));
 
 const RULES = `You are Inkly, the friendly study assistant inside Inkwell, a handwriting notes app for students.
 You are given the student's note: page images (their handwriting, highlights, drawings and any imported PDF pages) and the typed text from it.
@@ -48,6 +61,8 @@ const ACTIONS: { id: string; label: string; scope: 'page' | 'note'; prompt: stri
 
 const ERRORS: Record<string, string> = {
   not_granted: 'Inkly needs your OK to use Claude. Reload and choose Allow when asked.',
+  passcode: 'This Inkly needs a passcode. Enter it below.',
+  not_configured: 'Inkly’s AI key is missing or invalid on the server.',
   sampling_disabled: 'Claude isn’t available on this account.',
   rate_limited: 'You’ve hit your Claude usage limit for now. Try again a bit later.',
   session_expired: 'Your Claude session expired — sign in again, then retry.',
@@ -120,7 +135,7 @@ export class InklyPanel {
 
   private build() {
     const head = h('div', 'inkly-head');
-    head.innerHTML = `<span class="inkly-avatar">${icons.inkly}</span><div class="inkly-title"><b>Inkly</b><span class="ai-pill">AI</span></div>`;
+    head.innerHTML = `<span class="inkly-avatar">${icons.inkly}</span><div class="inkly-title"><b>Inkly</b><span class="ai-pill">AI</span><span class="inkly-via"></span></div>`;
     const clear = h('button', 'icon-btn small', icons.restore);
     clear.title = 'New chat';
     clear.setAttribute('aria-label', 'New chat');
@@ -169,8 +184,8 @@ export class InklyPanel {
     log.innerHTML = '';
     if (this.ready && !this.sample) {
       const card = h('div', 'inkly-empty');
-      card.innerHTML = `<div class="inkly-hero">${icons.inkly}</div><h3>Inkly runs on your Claude plan</h3>
-        <p>Inkly uses your own Claude subscription, so it only works when Inkwell is opened inside Claude (claude.ai).</p>
+      card.innerHTML = `<div class="inkly-hero">${icons.inkly}</div><h3>Inkly isn’t set up here yet</h3>
+        <p>On the hosted app, Inkly uses a free Gemini key stored on the server. Or open Inkwell inside Claude to use your Claude plan.</p>
         ${CLAUDE_COPY_URL ? `<a class="inkly-cta" href="${CLAUDE_COPY_URL}" target="_blank" rel="noopener">${icons.spark}<span>Open Inkwell in Claude</span></a>` : ''}
         <p class="muted">Your notes here stay on this device; use “Export note file” to bring one along.</p>`;
       log.append(card);
@@ -178,6 +193,8 @@ export class InklyPanel {
       return;
     }
     this.el.classList.remove('offline');
+    const via = this.el.querySelector('.inkly-via');
+    if (via && this.sample?.provider) via.textContent = `via ${this.sample.provider}`;
     if (!this.turns.length) {
       const hi = h('div', 'inkly-msg bot');
       hi.innerHTML = `<span class="inkly-avatar sm">${icons.inkly}</span><div class="bubble"><p>Hi! I can read your handwriting and PDFs in this note. Want a study guide, a summary, or flashcards?</p></div>`;
@@ -220,6 +237,22 @@ export class InklyPanel {
       b.append(acts);
     }
     return m;
+  }
+
+  private askPasscode() {
+    setTimeout(() => {
+      const f = h('form', 'inkly-pass');
+      const inp = h('input', 'field');
+      inp.type = 'password';
+      inp.placeholder = 'Inkly passcode';
+      inp.setAttribute('aria-label', 'Inkly passcode');
+      inp.onkeydown = (e) => e.stopPropagation();
+      const ok = h('button', 'inkly-act strong', '<span>Save</span>');
+      f.append(inp, ok);
+      f.onsubmit = (e) => { e.preventDefault(); setPasscode(inp.value.trim()); f.remove(); };
+      this.log.append(f);
+      inp.focus();
+    });
   }
 
   /** Pages to show Claude: the current one, or every page that has something on it. */
@@ -288,6 +321,7 @@ export class InklyPanel {
       else {
         bot.content = err.text ? `${err.text}\n\n—\n${ERRORS[err.code ?? ''] ?? ERRORS.upstream_error}` : ERRORS[err.code ?? ''] ?? ERRORS.upstream_error;
         bot.failed = !err.text;
+        if (err.code === 'passcode') this.askPasscode();
       }
       if (!bot.content) this.turns.splice(this.turns.indexOf(user), 2);
     } finally {
